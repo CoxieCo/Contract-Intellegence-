@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces — depth comes from these steps, not visible borders */
+  --background: #0a0b0d;
+  --surface: #131418;
+  --surface-raised: #17181d;
+
+  /* Text */
+  --foreground: #f2f2f4;
+  --text-muted: #8a8c93;
+
+  /* Accent — used only for primary actions, active states, focus rings */
+  --accent: #5b79ff;
+  --accent-strong: #4361e8;
+
+  /* Hairline borders — barely visible against surface */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  /* Severity — functional only, never reused decoratively elsewhere */
+  --severity-high: #f87171;
+  --severity-high-bg: rgba(248, 113, 113, 0.12);
+  --severity-high-border: rgba(248, 113, 113, 0.28);
+
+  --severity-medium: #fbbf24;
+  --severity-medium-bg: rgba(251, 191, 36, 0.12);
+  --severity-medium-border: rgba(251, 191, 36, 0.28);
+
+  --severity-low: #94a3b8;
+  --severity-low-bg: rgba(148, 163, 184, 0.12);
+  --severity-low-border: rgba(148, 163, 184, 0.24);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-hairline: var(--border);
+  --color-hairline-strong: var(--border-strong);
+
+  --color-severity-high: var(--severity-high);
+  --color-severity-high-bg: var(--severity-high-bg);
+  --color-severity-high-border: var(--severity-high-border);
+  --color-severity-medium: var(--severity-medium);
+  --color-severity-medium-bg: var(--severity-medium-bg);
+  --color-severity-medium-border: var(--severity-medium-border);
+  --color-severity-low: var(--severity-low);
+  --color-severity-low-bg: var(--severity-low-bg);
+  --color-severity-low-border: var(--severity-low-border);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* Soft elevation — panels read as sitting slightly above background */
+  --shadow-panel: 0 1px 0 0 rgba(255, 255, 255, 0.04) inset,
+    0 16px 40px -16px rgba(0, 0, 0, 0.6);
+  --shadow-panel-hover: 0 1px 0 0 rgba(255, 255, 255, 0.06) inset,
+    0 20px 48px -16px rgba(0, 0, 0, 0.7);
+  --shadow-glow-accent: 0 0 0 1px var(--accent),
+    0 0 28px -4px rgba(91, 121, 255, 0.55);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Subtle reveal on mount — sections/panels fade + lift in, nothing bouncy */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in-up 0.4s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

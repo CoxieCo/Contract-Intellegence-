@@ -1,10 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { PDFParse } from "pdf-parse";
+import { supabase } from "@/lib/supabase";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
+
+// Mirrors the client's parseAnalysis() in app/page.tsx — Claude is asked for
+// raw JSON but sometimes wraps it in a code fence anyway.
+function parseAnalysisJson(text: string): Record<string, unknown> | null {
+  let cleaned = text.trim();
+
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned
+      .replace(/^```[a-zA-Z]*\n/, "")
+      .replace(/```$/, "")
+      .trim();
+  }
+
+  try {
+    return JSON.parse(cleaned) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -117,11 +137,38 @@ Field priority: the following fields are the most important to get right — con
 Contract text:
 ${pageMarkedText}`,
         },
+        {
+          role: "assistant",
+          content: "{",
+        },
       ],
     });
 
+    // The prefill above isn't echoed back by the API, so it's re-added here —
+    // this makes it structurally very hard for the model to reply in prose,
+    // since its response is already mid-JSON-object before it writes a token.
     const responseText =
-      message.content[0].type === "text" ? message.content[0].text : "";
+      message.content[0].type === "text" ? "{" + message.content[0].text : "";
+
+    // Persist a copy for the dashboard. A save failure shouldn't block the
+    // user from seeing their result, so this never throws past this block —
+    // parse failures and Supabase errors are both just logged.
+    const parsedAnalysis = parseAnalysisJson(responseText);
+    if (parsedAnalysis) {
+      const { error: saveError } = await supabase
+        .from("analyses")
+        .insert({ file_name: file.name, analysis: parsedAnalysis });
+      if (saveError) {
+        console.error("Failed to save analysis to Supabase:", {
+          message: saveError.message,
+          code: saveError.code,
+          details: saveError.details,
+          hint: saveError.hint,
+        });
+      }
+    } else {
+      console.error("Skipped saving analysis: response was not valid JSON");
+    }
 
     return NextResponse.json({
       success: true,

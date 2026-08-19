@@ -1,7 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { ChangeEvent, DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { CURRENT_ANALYSIS_STORAGE_KEY, VIEW_REQUEST_STORAGE_KEY, severityStyles, severityCardStyle } from "@/lib/contract-analysis";
+import Spinner from "./components/Spinner";
 
 // react-pdf depends on browser-only APIs (Canvas, DOMMatrix, the PDF.js worker) and
 // must never be evaluated during SSR — see react-pdf's Next.js App Router setup notes.
@@ -328,10 +331,6 @@ function FileIcon() {
   );
 }
 
-function SpinnerIcon() {
-  return <span className="h-4 w-4 animate-spin rounded-full border-2 border-hairline-strong border-t-accent" />;
-}
-
 function ChevronIcon({ open }: { open: boolean }) {
   return (
     <svg
@@ -588,7 +587,7 @@ function FieldCard({
   return (
     <div
       ref={forwardedRef}
-      className={`rounded-lg border p-3 transition-colors duration-300 ${
+      className={`rounded-md border p-3 transition-colors duration-300 ${
         highlighted ? "border-accent bg-accent/10 ring-1 ring-accent" : "border-hairline bg-background/40"
       }`}
     >
@@ -636,7 +635,7 @@ function ClauseCard({
   return (
     <div
       ref={forwardedRef}
-      className={`rounded-lg border p-3 transition-colors duration-300 ${
+      className={`rounded-md border p-3 transition-colors duration-300 ${
         highlighted ? "border-accent bg-accent/10 ring-1 ring-accent" : "border-hairline bg-background/40"
       }`}
     >
@@ -752,32 +751,6 @@ function Timeline({ markers }: { markers: { label: string; field: SourcedValue }
   );
 }
 
-function severityStyles(severity: ThingToWatch["severity"]) {
-  switch (severity) {
-    case "HIGH":
-      return "bg-severity-high-bg text-severity-high border-severity-high-border";
-    case "MEDIUM":
-      return "bg-severity-medium-bg text-severity-medium border-severity-medium-border";
-    case "LOW":
-    default:
-      return "bg-severity-low-bg text-severity-low border-severity-low-border";
-  }
-}
-
-// Card-level weight — tapers with severity so the eye lands on HIGH items
-// first, purely from contrast, before reading any text.
-function severityCardStyle(severity: ThingToWatch["severity"]) {
-  switch (severity) {
-    case "HIGH":
-      return "border-severity-high-border bg-severity-high-bg";
-    case "MEDIUM":
-      return "border-severity-medium-border/60 bg-severity-medium-bg/60";
-    case "LOW":
-    default:
-      return "border-hairline bg-transparent";
-  }
-}
-
 function WatchAccordionItem({
   item,
   open,
@@ -865,6 +838,12 @@ export default function Home() {
   const [contractText, setContractText] = useState("");
   const [copied, setCopied] = useState(false);
 
+  // Set only when the results view was restored from the dashboard (a past
+  // analysis, or the current one revisited) rather than a live upload — there
+  // is no File object in that case, so this is what the header/citations fall
+  // back to for a display name.
+  const [archivedFileName, setArchivedFileName] = useState<string | null>(null);
+
   // The conversation log lives here regardless of entry point (Cmd+K or the
   // "Ask AI" button) — both open the same docked palette/panel.
   const [askHistory, setAskHistory] = useState<{ question: string; answer: string; sourceHint?: string }[]>([]);
@@ -917,6 +896,55 @@ export default function Home() {
     if (el) watchRefs.current.set(index, el);
     else watchRefs.current.delete(index);
   };
+
+  // ----- Restore a past analysis requested from the dashboard -----
+  // Navigating "/dashboard" -> "/" unmounts this component, so a fresh
+  // analysis and a past one clicked from the dashboard both need this same
+  // mount-time hydration to land in the identical results view.
+
+  useEffect(() => {
+    let raw: string | null = null;
+    try {
+      raw = sessionStorage.getItem(VIEW_REQUEST_STORAGE_KEY);
+      if (raw) sessionStorage.removeItem(VIEW_REQUEST_STORAGE_KEY);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+
+    let request: { fileName: string; analysis: ContractAnalysis } | null = null;
+    try {
+      const parsed = JSON.parse(raw) as { fileName: string; analysis: ContractAnalysis };
+      if (parsed?.analysis) request = parsed;
+    } catch {
+      // Malformed handoff payload — fall through to the normal idle screen.
+    }
+    if (!request) return;
+
+    // Deferred to a microtask rather than called directly in the effect body —
+    // this is a one-time hydration from external (browser) storage on mount,
+    // not state derived from props/state React already knows about.
+    const hydrate = request;
+    queueMicrotask(() => {
+      setAnalysis(hydrate.analysis);
+      setRawAnalysis(JSON.stringify(hydrate.analysis, null, 2));
+      setArchivedFileName(hydrate.fileName);
+      setContractText("");
+
+      const topHighIndex = hydrate.analysis.thingsToWatch?.findIndex((w) => w.severity === "HIGH") ?? -1;
+      setOpenWatchItems(new Set([topHighIndex >= 0 ? topHighIndex : 0]));
+
+      setViewMode("quickScan");
+      setWatchSortHighFirst(true);
+      setAppState("results");
+
+      try {
+        sessionStorage.setItem(CURRENT_ANALYSIS_STORAGE_KEY, JSON.stringify({ fileName: hydrate.fileName, analysis: hydrate.analysis }));
+      } catch {
+        // Non-critical — only affects whether the dashboard's "currently open" card picks this up.
+      }
+    });
+  }, []);
 
   // ----- Global keyboard shortcut (Cmd+K / Ctrl+K, Escape) -----
 
@@ -1142,6 +1170,8 @@ export default function Home() {
     setViewerCitation(null);
     setAskHistory([]);
     setAskError("");
+    sessionStorage.removeItem(CURRENT_ANALYSIS_STORAGE_KEY);
+    setArchivedFileName(null);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -1181,6 +1211,18 @@ export default function Home() {
       setRawAnalysis(raw);
       setContractText(typeof data.contractText === "string" ? data.contractText : "");
 
+      if (parsed) {
+        try {
+          sessionStorage.setItem(
+            CURRENT_ANALYSIS_STORAGE_KEY,
+            JSON.stringify({ fileName: selectedFile.name, analysis: parsed })
+          );
+        } catch {
+          // Session storage can fail (private browsing, quota) — the dashboard's
+          // "currently open" card just won't have anything to show, harmless.
+        }
+      }
+
       const topHighIndex = parsed?.thingsToWatch?.findIndex((w) => w.severity === "HIGH") ?? -1;
       setOpenWatchItems(new Set([topHighIndex >= 0 ? topHighIndex : 0]));
 
@@ -1212,6 +1254,8 @@ export default function Home() {
     setViewerCitation(null);
     setAskHistory([]);
     setAskError("");
+    sessionStorage.removeItem(CURRENT_ANALYSIS_STORAGE_KEY);
+    setArchivedFileName(null);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -1315,6 +1359,7 @@ export default function Home() {
             </span>
           </div>
           <div className="hidden items-center gap-7 text-sm text-muted md:flex">
+            <Link href="/dashboard" className="transition-colors duration-200 hover:text-foreground">Dashboard</Link>
             <a href="#coverage" className="transition-colors duration-200 hover:text-foreground">Coverage</a>
             <a href="#pricing" className="transition-colors duration-200 hover:text-foreground">Pricing</a>
           </div>
@@ -1329,7 +1374,7 @@ export default function Home() {
 
       {/* Big bold hero — only shown before results, so it doesn't compete with the dashboard */}
       {appState !== "results" && (
-        <section className="relative overflow-hidden border-b border-hairline bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(91,121,255,0.14),transparent)]">
+        <section className="border-b border-hairline">
           <div className="animate-fade-in mx-auto max-w-4xl px-6 py-20 text-center">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-hairline bg-surface px-3.5 py-1.5 text-xs font-medium text-muted">
               <span className="h-1.5 w-1.5 rounded-full bg-accent" />
@@ -1356,7 +1401,7 @@ export default function Home() {
               </button>
               <a
                 href="#pricing"
-                className="rounded-md border border-hairline bg-surface px-6 py-3 text-sm font-medium text-foreground transition-colors duration-200 hover:border-hairline-strong hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                className="rounded-md border border-hairline bg-surface px-6 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:border-hairline-strong hover:bg-surface-raised active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 See pricing
               </a>
@@ -1380,7 +1425,7 @@ export default function Home() {
         {/* Upload panel */}
         {appState !== "results" && (
           <div ref={uploadSectionRef} className="animate-fade-in mx-auto w-full max-w-2xl scroll-mt-20">
-            <div className="rounded-lg border border-hairline bg-surface p-2 shadow-panel">
+            <div className="rounded-md border border-hairline bg-surface p-2 shadow-panel">
               <div
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
@@ -1461,7 +1506,7 @@ export default function Home() {
                 {appState === "analyzing" && (
                   <>
                     <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-hairline bg-surface-raised">
-                      <SpinnerIcon />
+                      <Spinner />
                     </div>
                     <h2 className="text-[15px] font-semibold text-foreground">
                       Analyzing your contract…
@@ -1485,13 +1530,13 @@ export default function Home() {
         {/* Results — dashboard panel with mode switcher, tabs + accordion */}
         {appState === "results" && (
           <div className="animate-fade-in mx-auto w-full max-w-4xl">
-            <div className="rounded-lg border border-hairline bg-surface shadow-panel">
+            <div className="rounded-md border border-hairline bg-surface shadow-panel">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-5 py-3.5">
                 <div>
                   <h2 className="text-[15px] font-semibold text-foreground">Analysis results</h2>
-                  {selectedFile && (
+                  {(selectedFile || archivedFileName) && (
                     <p className="mt-0.5 text-[13px] text-muted">
-                      {selectedFile.name}
+                      {selectedFile ? selectedFile.name : archivedFileName}
                       {watchCount > 0 && (
                         <span className="ml-2 tabular-nums text-muted">
                           · {watchCount} item{watchCount !== 1 ? "s" : ""} to review
@@ -1596,7 +1641,7 @@ export default function Home() {
                     <div className="animate-fade-in space-y-5 px-5 py-5">
                       {/* Zone 1 — Contract identity */}
                       {analysis.contractOverview && (
-                        <section className="rounded-lg border border-hairline bg-background/30 p-5">
+                        <section className="rounded-md border border-hairline bg-background/30 p-5">
                           <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
                             Contract identity
                           </p>
@@ -1658,7 +1703,7 @@ export default function Home() {
 
                       {/* Zone 2 — Important dates */}
                       {analysis.importantDates && (
-                        <section className="rounded-lg border border-hairline bg-background/30 p-5">
+                        <section className="rounded-md border border-hairline bg-background/30 p-5">
                           <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
                             Important dates
                           </p>
@@ -1695,7 +1740,7 @@ export default function Home() {
 
                       {/* Zone 3 — Commercial terms */}
                       {analysis.commercialTerms && (
-                        <section className="rounded-lg border border-hairline bg-background/30 p-5">
+                        <section className="rounded-md border border-hairline bg-background/30 p-5">
                           <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
                             Commercial terms
                           </p>
@@ -1706,7 +1751,7 @@ export default function Home() {
                                 label={termsLabels[key]}
                                 field={analysis.commercialTerms![key]}
                                 mono
-                                primary
+                                primary={key === "contractValue"}
                                 highlighted={isHighlighted("terms", key)}
                                 forwardedRef={registerFieldRef("terms", key)}
                                 onOpenCitation={openCitation}
@@ -1718,7 +1763,7 @@ export default function Home() {
 
                       {/* Zone 4 — Key clauses */}
                       {analysis.keyClauses && (
-                        <section className="rounded-lg border border-hairline bg-background/30 p-5">
+                        <section className="rounded-md border border-hairline bg-background/30 p-5">
                           <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
                             Key clauses
                           </p>
@@ -1738,9 +1783,8 @@ export default function Home() {
                       )}
 
                       {/* Zone 5 — Things to watch */}
-                      <section className="relative overflow-hidden rounded-lg border border-severity-high-border bg-background/30 p-5">
-                        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_70%_at_50%_0%,rgba(248,113,113,0.07),transparent)]" />
-                        <div className="relative flex flex-wrap items-center justify-between gap-2">
+                      <section className="rounded-md border border-severity-high-border bg-background/30 p-5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-severity-high">
                             Things to watch
                           </p>
@@ -1756,7 +1800,7 @@ export default function Home() {
                             </p>
                           )}
                         </div>
-                        <div className="relative mt-4">
+                        <div className="mt-4">
                           {watchCount > 0 ? (
                             <div className="space-y-2">
                               {displayedWatchItems.map(({ item, i }) => (
@@ -1809,7 +1853,7 @@ export default function Home() {
               </h2>
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-hairline bg-surface shadow-panel">
+            <div className="overflow-hidden rounded-md border border-hairline bg-surface shadow-panel">
               {coverageItems.map((item, i) => (
                 <div
                   key={item.label}
@@ -1847,7 +1891,7 @@ export default function Home() {
               {pricingTiers.map((tier) => (
                 <div
                   key={tier.name}
-                  className={`relative flex flex-col rounded-lg border bg-surface p-6 transition-all duration-200 hover:-translate-y-0.5 ${
+                  className={`relative flex flex-col rounded-md border bg-surface p-6 transition-all duration-200 hover:-translate-y-0.5 ${
                     tier.highlighted
                       ? "border-accent shadow-glow-accent"
                       : "border-hairline shadow-panel hover:shadow-panel-hover"
@@ -1933,7 +1977,7 @@ export default function Home() {
             aria-modal="true"
             aria-label="Command palette"
             onClick={(e) => e.stopPropagation()}
-            className={`w-full max-w-lg overflow-hidden rounded-lg border border-hairline bg-surface shadow-panel ${
+            className={`w-full max-w-lg overflow-hidden rounded-md border border-hairline bg-surface shadow-panel ${
               paletteOpen ? "animate-palette-in" : "animate-palette-out"
             }`}
           >
@@ -1966,7 +2010,7 @@ export default function Home() {
                           key={s}
                           type="button"
                           onClick={() => runPaletteQuery(s)}
-                          className="block w-full rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                          className="block w-full rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors duration-200 hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         >
                           {s}
                         </button>
@@ -1982,11 +2026,9 @@ export default function Home() {
                         <div key={i} className="rounded-md border border-hairline bg-background/40 p-3">
                           <p className="text-[13px] font-medium text-muted">{entry.question}</p>
                           <p className="mt-1 text-sm leading-5 text-foreground">{entry.answer}</p>
-                          {entry.sourceHint && (
-                            <div className="mt-1.5">
-                              <SourceHintBadge hint={entry.sourceHint} />
-                            </div>
-                          )}
+                          <div className="mt-1.5">
+                            <SourceHintBadge hint={entry.sourceHint || "No specific clause identified"} />
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1994,7 +2036,7 @@ export default function Home() {
 
                   {askLoading && (
                     <div className="flex items-center gap-2 px-2.5 py-3 text-sm text-muted">
-                      <SpinnerIcon />
+                      <Spinner />
                       Thinking…
                     </div>
                   )}
@@ -2024,6 +2066,38 @@ export default function Home() {
           section={viewerCitation.section}
           onClose={() => setViewerCitation(null)}
         />
+      )}
+
+      {/* Same trigger, honest fallback — past analyses only ever stored the
+          extracted data, never the source PDF, so there's nothing to open. */}
+      {viewerCitation && !selectedFile && (
+        <div
+          role="presentation"
+          onClick={() => setViewerCitation(null)}
+          className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8 backdrop-blur-sm"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Source unavailable"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-md border border-hairline bg-surface p-5 text-center shadow-panel"
+          >
+            <p className="text-sm font-medium text-foreground">Original PDF not available</p>
+            <p className="mt-1.5 text-sm leading-5 text-muted">
+              This citation points to page {viewerCitation.page}
+              {viewerCitation.section ? `, ${viewerCitation.section}` : ""} — but only the extracted data is saved for
+              past analyses, not the source file.
+            </p>
+            <button
+              type="button"
+              onClick={() => setViewerCitation(null)}
+              className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors duration-200 hover:bg-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
       )}
     </main>
   );

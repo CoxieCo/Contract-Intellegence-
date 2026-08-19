@@ -27,11 +27,33 @@ function parseAskResponse(text: string): { answer: string; sourceHint: string } 
   return { answer: text.trim(), sourceHint: "" };
 }
 
+interface HistoryTurn {
+  question: string;
+  answer: string;
+}
+
+function parseHistory(value: unknown): HistoryTurn[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (turn): turn is HistoryTurn =>
+        !!turn &&
+        typeof turn === "object" &&
+        typeof (turn as Record<string, unknown>).question === "string" &&
+        typeof (turn as Record<string, unknown>).answer === "string"
+    )
+    // Only the last few turns are needed to resolve pronouns/references —
+    // and it keeps every request bounded regardless of how long the
+    // conversation in the UI has grown.
+    .slice(-3);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const contractText = typeof body?.contractText === "string" ? body.contractText : "";
     const question = typeof body?.question === "string" ? body.question : "";
+    const history = parseHistory(body?.history);
 
     if (!contractText.trim() || !question.trim()) {
       return NextResponse.json(
@@ -40,13 +62,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-5",
-      max_tokens: 1024,
-      messages: [
-        {
-          role: "user",
-          content: `You are a contract analysis assistant answering a follow-up question about a specific contract. Answer ONLY using the contract text provided below — never invent information, and never rely on outside knowledge of what similar contracts usually say.
+    const systemPrompt = `You are a contract analysis assistant answering questions about a specific contract. Answer ONLY using the contract text provided below — never invent information, and never rely on outside knowledge of what similar contracts usually say.
 
 Rules — follow all of these exactly:
 1. If the contract does not address the question, say so plainly (e.g. "The contract does not address this.") — do not guess or infer.
@@ -54,16 +70,27 @@ Rules — follow all of these exactly:
 3. Do not provide legal advice or legal conclusions of any kind — describe what the contract says, not what it means legally.
 4. Keep the answer concise (a few sentences).
 5. If you can identify the specific clause or section the answer comes from, set "sourceHint" to a short description of it (e.g. "Section 3, Termination") — only if it is actually identifiable in the text. Never fabricate a page or section reference that isn't evident in the text. If no source is identifiable, set "sourceHint" to an empty string.
+6. Earlier turns in this conversation, if present, are provided only so you can resolve references like "it" or "the other party" in the current question. They are never a source of contract facts — every fact in your answer must still come from the contract text below, following rules 1-2 exactly as if this were the first question asked.
 
 Return ONLY valid JSON (no markdown, no code fences, no preamble) matching this exact shape:
 { "answer": "...", "sourceHint": "..." }
 
 Contract text:
-${contractText}
+${contractText}`;
 
-Question: ${question}`,
-        },
-      ],
+    const messages: Anthropic.MessageParam[] = [
+      ...history.flatMap((turn): Anthropic.MessageParam[] => [
+        { role: "user", content: turn.question },
+        { role: "assistant", content: turn.answer },
+      ]),
+      { role: "user", content: question },
+    ];
+
+    const message = await anthropic.messages.create({
+      model: "claude-sonnet-4-5",
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages,
     });
 
     const responseText =

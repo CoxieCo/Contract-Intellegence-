@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { ChangeEvent, DragEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
 
 // react-pdf depends on browser-only APIs (Canvas, DOMMatrix, the PDF.js worker) and
 // must never be evaluated during SSR — see react-pdf's Next.js App Router setup notes.
@@ -74,7 +74,7 @@ interface ContractAnalysis {
 
 type AppState = "idle" | "fileSelected" | "analyzing" | "results";
 type TabKey = "overview" | "dates" | "terms" | "clauses" | "watch";
-type ViewMode = "quickScan" | "fullReview" | "ask";
+type ViewMode = "quickScan" | "fullReview";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 
@@ -121,18 +121,9 @@ const clausesLabels: Record<keyof KeyClauses, string> = {
   slaCommitments: "SLA commitments",
 };
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: "overview", label: "Overview" },
-  { key: "dates", label: "Dates" },
-  { key: "terms", label: "Terms" },
-  { key: "clauses", label: "Clauses" },
-  { key: "watch", label: "Things to watch" },
-];
-
 const MODE_OPTIONS: { key: ViewMode; label: string }[] = [
   { key: "quickScan", label: "Quick Scan" },
   { key: "fullReview", label: "Full Review" },
-  { key: "ask", label: "Ask" },
 ];
 
 const severityRank: Record<ThingToWatch["severity"], number> = {
@@ -414,10 +405,37 @@ function CiteSourceButton({
   );
 }
 
+// Ask answers carry a free-text sourceHint (e.g. "Section 3, Termination")
+// rather than a real page number, so it can't reuse CiteSourceButton's
+// click-to-navigate behavior — but it reuses the exact same small, quiet
+// pill styling so citations read consistently across the app.
+function SourceHintBadge({ hint }: { hint: string }) {
+  return (
+    <span className="inline-flex w-fit whitespace-nowrap rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted">
+      {hint}
+    </span>
+  );
+}
+
+// Clause values can run to multi-sentence prose (termination conditions,
+// liability language). Below this length they render in full as before;
+// above it, they collapse to a preview with the same expand interaction
+// used for Things to Watch.
+const CLAUSE_PREVIEW_LENGTH = 115;
+
+function truncateAtWord(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  const clipped = text.slice(0, maxLength);
+  const lastSpace = clipped.lastIndexOf(" ");
+  return (lastSpace > maxLength * 0.6 ? clipped.slice(0, lastSpace) : clipped).trimEnd();
+}
+
 function FieldRow({
   label,
   field,
   mono,
+  primary,
+  expandable,
   highlighted,
   forwardedRef,
   onOpenCitation,
@@ -425,6 +443,143 @@ function FieldRow({
   label: string;
   field: SourcedValue;
   mono?: boolean;
+  primary?: boolean;
+  expandable?: boolean;
+  highlighted?: boolean;
+  forwardedRef?: (el: HTMLDivElement | null) => void;
+  onOpenCitation?: (page: number, section: string | null) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const notFound = field.value === "Not found";
+  const isLong = Boolean(expandable) && !notFound && field.value.length > CLAUSE_PREVIEW_LENGTH;
+  const preview = isLong ? truncateAtWord(field.value, CLAUSE_PREVIEW_LENGTH) : field.value;
+  const remainder = isLong ? field.value.slice(preview.length) : "";
+
+  return (
+    <div
+      ref={forwardedRef}
+      className={`flex flex-col gap-1 rounded-md border-b border-hairline py-2.5 first:pt-0 last:border-0 last:pb-0 transition-colors duration-300 sm:flex-row sm:items-start sm:justify-between sm:gap-6 ${
+        highlighted ? "border-transparent bg-accent/10 px-2 ring-1 ring-accent" : ""
+      }`}
+    >
+      <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted sm:w-48 sm:shrink-0">
+        {label}
+      </span>
+      <span className="flex flex-1 flex-col items-end gap-1">
+        <span className="flex w-full items-start justify-end gap-2">
+          <span
+            className={`tabular-nums sm:text-right ${mono ? "font-mono" : ""} ${
+              primary && !notFound ? "text-[18px] leading-6 font-semibold tracking-[-0.01em]" : "text-sm leading-5"
+            } ${notFound ? "italic text-muted" : "text-foreground"}`}
+          >
+            {preview}
+            {isLong && !expanded ? "…" : ""}
+          </span>
+          <CiteSourceButton page={field.page} section={field.section} onOpen={onOpenCitation} />
+        </span>
+        {isLong && (
+          <div className={`accordion-panel w-full ${expanded ? "is-open" : ""}`}>
+            <div>
+              <p
+                className={`pt-0.5 text-sm leading-5 text-foreground sm:text-right ${mono ? "font-mono" : ""}`}
+              >
+                {remainder}
+              </p>
+            </div>
+          </div>
+        )}
+        {isLong && (
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            className="flex items-center gap-1 text-xs font-medium text-accent transition-colors duration-200 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <ChevronIcon open={expanded} />
+            {expanded ? "Show less" : "Read more"}
+          </button>
+        )}
+      </span>
+    </div>
+  );
+}
+
+// Turns a model-extracted section reference like "Section 9.1-9.2" into the
+// compact "§9.1-9.2" notation used by the inline citation badges below —
+// display-only, doesn't touch what the backend actually extracted.
+function formatSectionLabel(section: string): string {
+  return section.replace(/^section\s+/i, "§");
+}
+
+function parseDateLoose(value: string): number | null {
+  const t = Date.parse(value);
+  return Number.isNaN(t) ? null : t;
+}
+
+// Zone-only citation badge (Full Review). Unlike CiteSourceButton, this
+// always shows the page/section text up front instead of hiding it behind
+// a click — but for the no-citation case it falls back to the exact same
+// "coming soon" honesty CiteSourceButton already uses, just restyled.
+function CitationBadge({
+  page,
+  section,
+  onOpen,
+}: {
+  page?: number | null;
+  section?: string | null;
+  onOpen?: (page: number, section: string | null) => void;
+}) {
+  const [showComingSoon, setShowComingSoon] = useState(false);
+
+  useEffect(() => {
+    if (!showComingSoon) return;
+    const timeout = setTimeout(() => setShowComingSoon(false), 2500);
+    return () => clearTimeout(timeout);
+  }, [showComingSoon]);
+
+  const hasPage = page != null;
+  const sectionLabel = section ? formatSectionLabel(section) : null;
+  const label = hasPage ? [`Page ${page}`, sectionLabel].filter(Boolean).join(" · ") : sectionLabel;
+
+  return (
+    <span className="relative inline-flex shrink-0">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (hasPage && onOpen) onOpen(page, section ?? null);
+          else setShowComingSoon((s) => !s);
+        }}
+        className="whitespace-nowrap rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted transition-colors duration-200 hover:border-hairline-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        {label ?? "Cite source"}
+      </button>
+      {showComingSoon && !hasPage && (
+        <span
+          role="status"
+          className="absolute right-0 top-full z-10 mt-1 w-max max-w-[220px] rounded-md border border-hairline bg-surface-raised px-2 py-1 text-[11px] leading-4 text-muted shadow-panel"
+        >
+          Source citation coming soon
+        </span>
+      )}
+    </span>
+  );
+}
+
+// Zone 2/3 card — micro-label + citation badge up top, the value reads as
+// the dominant "primary" text underneath (numbers people scan for first).
+function FieldCard({
+  label,
+  field,
+  mono,
+  primary,
+  highlighted,
+  forwardedRef,
+  onOpenCitation,
+}: {
+  label: string;
+  field: SourcedValue;
+  mono?: boolean;
+  primary?: boolean;
   highlighted?: boolean;
   forwardedRef?: (el: HTMLDivElement | null) => void;
   onOpenCitation?: (page: number, section: string | null) => void;
@@ -433,21 +588,166 @@ function FieldRow({
   return (
     <div
       ref={forwardedRef}
-      className={`flex flex-col gap-1 rounded-md border-b border-hairline py-2.5 first:pt-0 last:border-0 last:pb-0 transition-colors duration-300 sm:flex-row sm:items-start sm:justify-between sm:gap-6 ${
-        highlighted ? "border-transparent bg-accent/10 px-2 ring-1 ring-accent" : ""
+      className={`rounded-lg border p-3 transition-colors duration-300 ${
+        highlighted ? "border-accent bg-accent/10 ring-1 ring-accent" : "border-hairline bg-background/40"
       }`}
     >
-      <span className="text-sm font-medium text-muted sm:w-48 sm:shrink-0">{label}</span>
-      <span className="flex flex-1 items-start justify-end gap-2">
-        <span
-          className={`text-sm leading-5 tabular-nums sm:text-right ${mono ? "font-mono" : ""} ${
-            notFound ? "italic text-muted" : "text-foreground"
-          }`}
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">{label}</span>
+        <CitationBadge page={field.page} section={field.section} onOpen={onOpenCitation} />
+      </div>
+      <p
+        className={`mt-2 tabular-nums ${mono ? "font-mono" : ""} ${
+          notFound
+            ? "text-sm italic text-muted"
+            : primary
+              ? "text-[20px] leading-6 font-semibold tracking-[-0.01em] text-foreground"
+              : "text-base font-semibold text-foreground"
+        }`}
+      >
+        {field.value}
+      </p>
+    </div>
+  );
+}
+
+// Zone 4 card — clause text reads as an annotation (bold title + prose),
+// not extracted data, so it keeps the truncate/expand behavior built for
+// long clause text instead of FieldCard's big-number treatment.
+function ClauseCard({
+  label,
+  field,
+  highlighted,
+  forwardedRef,
+  onOpenCitation,
+}: {
+  label: string;
+  field: SourcedValue;
+  highlighted?: boolean;
+  forwardedRef?: (el: HTMLDivElement | null) => void;
+  onOpenCitation?: (page: number, section: string | null) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const notFound = field.value === "Not found";
+  const isLong = !notFound && field.value.length > CLAUSE_PREVIEW_LENGTH;
+  const preview = isLong ? truncateAtWord(field.value, CLAUSE_PREVIEW_LENGTH) : field.value;
+  const remainder = isLong ? field.value.slice(preview.length) : "";
+
+  return (
+    <div
+      ref={forwardedRef}
+      className={`rounded-lg border p-3 transition-colors duration-300 ${
+        highlighted ? "border-accent bg-accent/10 ring-1 ring-accent" : "border-hairline bg-background/40"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-sm font-semibold text-foreground">{label}</span>
+        <CitationBadge page={field.page} section={field.section} onOpen={onOpenCitation} />
+      </div>
+      <p className={`mt-1.5 text-sm leading-5 ${notFound ? "italic text-muted" : "text-muted"}`}>
+        {preview}
+        {isLong && !expanded ? "…" : ""}
+      </p>
+      {isLong && (
+        <div className={`accordion-panel ${expanded ? "is-open" : ""}`}>
+          <div>
+            <p className="pt-0.5 text-sm leading-5 text-muted">{remainder}</p>
+          </div>
+        </div>
+      )}
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          className="mt-1 flex items-center gap-1 text-xs font-medium text-accent transition-colors duration-200 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          {field.value}
-        </span>
-        <CiteSourceButton page={field.page} section={field.section} onOpen={onOpenCitation} />
-      </span>
+          <ChevronIcon open={expanded} />
+          {expanded ? "Show less" : "Read more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Zone 1's identity fields are bespoke layout (heading/subtitle/badge), not
+// generic label-value rows, but still need the same scroll-to-and-flash
+// highlight the palette already uses everywhere else. Branches on a static
+// tag per case (rather than a dynamic `<Tag>`) so each ref attaches to a
+// literal host element — the pattern the ref-safety lint rule expects.
+function HighlightField({
+  as,
+  active,
+  className,
+  forwardedRef,
+  children,
+}: {
+  as: "h2" | "p" | "span";
+  active?: boolean;
+  className?: string;
+  forwardedRef?: (el: HTMLElement | null) => void;
+  children: ReactNode;
+}) {
+  const fullClassName = `transition-colors duration-300 ${className ?? ""} ${
+    active ? "-mx-1 rounded-md bg-accent/10 px-1 ring-1 ring-accent" : ""
+  }`;
+
+  if (as === "h2") {
+    return (
+      <h2 ref={forwardedRef} className={fullClassName}>
+        {children}
+      </h2>
+    );
+  }
+  if (as === "p") {
+    return (
+      <p ref={forwardedRef} className={fullClassName}>
+        {children}
+      </p>
+    );
+  }
+  return (
+    <span ref={forwardedRef} className={fullClassName}>
+      {children}
+    </span>
+  );
+}
+
+// Zone 2's timeline — deliberately simple (no library): a hairline bar with
+// up to 3 markers, positioned proportionally when the dates parse cleanly
+// and evenly spaced otherwise. "Not found" dates are filtered out by the
+// caller before markers ever reach this component.
+function Timeline({ markers }: { markers: { label: string; field: SourcedValue }[] }) {
+  const visible = markers.filter((m) => m.field.value !== "Not found");
+  if (visible.length === 0) return null;
+
+  const timestamps = visible.map((m) => parseDateLoose(m.field.value));
+  const allParsed = timestamps.every((t) => t !== null);
+  const min = allParsed ? Math.min(...(timestamps as number[])) : null;
+  const max = allParsed ? Math.max(...(timestamps as number[])) : null;
+  const spread = min !== null && max !== null ? max - min : null;
+
+  return (
+    <div className="relative mx-2 mb-8 mt-8 h-px bg-hairline-strong">
+      {visible.map((m, i) => {
+        const t = timestamps[i];
+        const pct =
+          spread && spread > 0 && t !== null && min !== null
+            ? ((t - min) / spread) * 100
+            : (i / Math.max(visible.length - 1, 1)) * 100;
+        return (
+          <div
+            key={m.label}
+            className="absolute top-0 flex -translate-x-1/2 flex-col items-center"
+            style={{ left: `${pct}%` }}
+          >
+            <span className="mb-1.5 -translate-y-full whitespace-nowrap text-[11px] text-muted">{m.label}</span>
+            <span className="h-2.5 w-2.5 -translate-y-1/2 rounded-full border-2 border-background bg-accent" />
+            <span className="mt-1.5 whitespace-nowrap font-mono text-xs font-semibold text-foreground">
+              {m.field.value}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -464,6 +764,20 @@ function severityStyles(severity: ThingToWatch["severity"]) {
   }
 }
 
+// Card-level weight — tapers with severity so the eye lands on HIGH items
+// first, purely from contrast, before reading any text.
+function severityCardStyle(severity: ThingToWatch["severity"]) {
+  switch (severity) {
+    case "HIGH":
+      return "border-severity-high-border bg-severity-high-bg";
+    case "MEDIUM":
+      return "border-severity-medium-border/60 bg-severity-medium-bg/60";
+    case "LOW":
+    default:
+      return "border-hairline bg-transparent";
+  }
+}
+
 function WatchAccordionItem({
   item,
   open,
@@ -472,6 +786,7 @@ function WatchAccordionItem({
   highlighted,
   forwardedRef,
   onOpenCitation,
+  inlineCitation,
 }: {
   item: ThingToWatch;
   open: boolean;
@@ -480,27 +795,31 @@ function WatchAccordionItem({
   highlighted?: boolean;
   forwardedRef?: (el: HTMLDivElement | null) => void;
   onOpenCitation?: (page: number, section: string | null) => void;
+  // Zone 5 (Full Review) wants the always-visible page/section badge; Quick
+  // Scan's instance of this same component keeps the original click-to-cite
+  // button by leaving this unset, so its rendering is unaffected.
+  inlineCitation?: boolean;
 }) {
   return (
     <div
       ref={forwardedRef}
-      className={`rounded-md border-b border-hairline transition-colors duration-300 last:border-0 ${
-        highlighted ? "border-transparent bg-accent/10 ring-1 ring-accent" : ""
+      className={`rounded-md border px-3 transition-colors duration-300 ${
+        highlighted ? "border-transparent bg-accent/10 ring-1 ring-accent" : severityCardStyle(item.severity)
       }`}
     >
-      <div className="flex w-full items-center justify-between gap-3 py-2.5 pl-1">
+      <div className="flex w-full items-center justify-between gap-3 py-2.5">
         <button
           type="button"
           onClick={onToggle}
           className="flex flex-1 items-center gap-2.5 text-left text-muted transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <ChevronIcon open={open} />
-          <span className={`rounded border px-1.5 py-0.5 text-[11px] font-semibold tracking-wide ${severityStyles(item.severity)}`}>
+          <span className={`rounded border px-1.5 py-0.5 text-[11px] font-medium tracking-[0.04em] ${severityStyles(item.severity)}`}>
             {item.severity}
           </span>
           <span className="text-sm font-medium text-foreground">{item.title}</span>
         </button>
-        <div className="flex shrink-0 items-center gap-1.5 pr-1">
+        <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
             onClick={(e) => {
@@ -511,12 +830,18 @@ function WatchAccordionItem({
           >
             Why is this risky?
           </button>
-          <CiteSourceButton page={item.page} section={item.section} onOpen={onOpenCitation} />
+          {inlineCitation ? (
+            <CitationBadge page={item.page} section={item.section} onOpen={onOpenCitation} />
+          ) : (
+            <CiteSourceButton page={item.page} section={item.section} onOpen={onOpenCitation} />
+          )}
         </div>
       </div>
-      {open && (
-        <p className="animate-fade-in pb-2.5 pl-7 pr-2 text-sm leading-5 text-muted">{item.explanation}</p>
-      )}
+      <div className={`accordion-panel ${open ? "is-open" : ""}`}>
+        <div>
+          <p className="pb-3 pl-7 text-sm leading-5 text-muted">{item.explanation}</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -527,7 +852,7 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadSectionRef = useRef<HTMLDivElement>(null);
   const paletteInputRef = useRef<HTMLInputElement>(null);
-  const fieldRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const fieldRefs = useRef<Map<string, HTMLElement>>(new Map());
   const watchRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const [appState, setAppState] = useState<AppState>("idle");
@@ -540,22 +865,20 @@ export default function Home() {
   const [contractText, setContractText] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const [askQuestion, setAskQuestion] = useState("");
+  // The conversation log lives here regardless of entry point (Cmd+K or the
+  // "Ask AI" button) — both open the same docked palette/panel.
   const [askHistory, setAskHistory] = useState<{ question: string; answer: string; sourceHint?: string }[]>([]);
   const [askLoading, setAskLoading] = useState(false);
   const [askError, setAskError] = useState("");
 
-  const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [openWatchItems, setOpenWatchItems] = useState<Set<number>>(new Set([0]));
 
   const [viewMode, setViewMode] = useState<ViewMode>("quickScan");
-  const [watchSortHighFirst, setWatchSortHighFirst] = useState(false);
+  const [watchSortHighFirst, setWatchSortHighFirst] = useState(true);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteRendered, setPaletteRendered] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
-  const [paletteMessage, setPaletteMessage] = useState<string | null>(null);
-  const [paletteAsking, setPaletteAsking] = useState(false);
-  const [paletteAnswer, setPaletteAnswer] = useState<{ question: string; answer: string; sourceHint?: string } | null>(null);
 
   const [highlight, setHighlight] = useState<{ tab: TabKey; key: string } | null>(null);
   const [highlightWatchIndex, setHighlightWatchIndex] = useState<number | null>(null);
@@ -584,7 +907,7 @@ export default function Home() {
     setHighlightWatchIndex(index);
   };
 
-  const registerFieldRef = (tab: TabKey, key: string) => (el: HTMLDivElement | null) => {
+  const registerFieldRef = (tab: TabKey, key: string) => (el: HTMLElement | null) => {
     const mapKey = `${tab}-${key}`;
     if (el) fieldRefs.current.set(mapKey, el);
     else fieldRefs.current.delete(mapKey);
@@ -602,9 +925,8 @@ export default function Home() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteQuery("");
-        setPaletteMessage(null);
-        setPaletteAnswer(null);
         setPaletteOpen(true);
+        setPaletteRendered(true);
       } else if (e.key === "Escape") {
         setPaletteOpen(false);
       }
@@ -617,6 +939,16 @@ export default function Home() {
     if (!paletteOpen) return;
     const id = requestAnimationFrame(() => paletteInputRef.current?.focus());
     return () => cancelAnimationFrame(id);
+  }, [paletteOpen]);
+
+  // Keep the palette mounted for the exit animation (150ms) instead of
+  // unmounting the instant it closes. Opening sets paletteRendered(true)
+  // directly at each call site so this effect only ever needs to handle
+  // the delayed close.
+  useEffect(() => {
+    if (paletteOpen) return;
+    const timeout = setTimeout(() => setPaletteRendered(false), 150);
+    return () => clearTimeout(timeout);
   }, [paletteOpen]);
 
   // ----- Highlight scroll + fade -----
@@ -639,12 +971,15 @@ export default function Home() {
 
   // ----- Command palette -----
 
-  const jumpToTab = (
+  // All 5 zones are always mounted in Full Review now, so "jumping" no
+  // longer means switching tabs — just leaving Quick Scan (if active) and
+  // scrolling/highlighting the target field, which was already how the
+  // highlight-and-scroll effect below worked.
+  const jumpToField = (
     tab: TabKey,
     opts?: { highlightKey?: string; watchIndex?: number; sortWatchHighFirst?: boolean }
   ) => {
     setViewMode("fullReview");
-    setActiveTab(tab);
     setHighlight(opts?.highlightKey ? { tab, key: opts.highlightKey } : null);
     setHighlightWatchIndex(opts?.watchIndex ?? null);
     if (opts?.watchIndex !== undefined) {
@@ -653,51 +988,51 @@ export default function Home() {
     if (opts?.sortWatchHighFirst) setWatchSortHighFirst(true);
     setPaletteOpen(false);
     setPaletteQuery("");
-    setPaletteMessage(null);
-    setPaletteAnswer(null);
-    setPaletteAsking(false);
   };
 
+  // Shared by both the palette's free-text fallback and any other entry
+  // point into the ask panel — there's only one conversation now.
   const askContract = async (question: string) => {
-    if (!contractText) {
-      setPaletteMessage("No matching field found — try Ask mode for open-ended questions.");
-      return;
-    }
+    const q = question.trim();
+    if (!q || !contractText || askLoading) return;
 
-    setPaletteAsking(true);
-    setPaletteMessage(null);
-    setPaletteAnswer(null);
+    setAskLoading(true);
+    setAskError("");
+    setPaletteQuery("");
+
+    // Last few turns only — enough to resolve "what about the other party?"
+    // without letting the request grow unbounded as the log gets long.
+    const history = askHistory.slice(-3).map(({ question, answer }) => ({ question, answer }));
 
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contractText, question }),
+        body: JSON.stringify({ contractText, question: q, history }),
       });
       const data = await res.json();
 
       if (!res.ok) {
-        setPaletteMessage(data.error || "Couldn't get an answer. Try again.");
+        setAskError(data.error || "Couldn't get an answer. Try again.");
         return;
       }
 
-      setPaletteAnswer({ question, answer: data.answer, sourceHint: data.sourceHint });
+      setAskHistory((prev) => [...prev, { question: q, answer: data.answer, sourceHint: data.sourceHint }]);
     } catch {
-      setPaletteMessage("Couldn't reach the AI. Is the dev server running?");
+      setAskError("Couldn't reach the AI. Is the dev server running?");
     } finally {
-      setPaletteAsking(false);
+      setAskLoading(false);
     }
   };
 
   const runPaletteQuery = (rawQuery: string) => {
     setPaletteQuery(rawQuery);
-    setPaletteAnswer(null);
     const query = normalize(rawQuery);
     if (!analysis || !query) return;
 
     const match = findBestMatch(rawQuery, buildSearchIndex(analysis));
     if (match) {
-      jumpToTab(match.tab, {
+      jumpToField(match.tab, {
         highlightKey: match.watchIndex === undefined ? match.key : undefined,
         watchIndex: match.watchIndex,
       });
@@ -705,15 +1040,15 @@ export default function Home() {
     }
 
     if (query.includes("severity") || query.includes("risky") || query.includes("risk")) {
-      jumpToTab("watch", { sortWatchHighFirst: true });
+      jumpToField("watch", { sortWatchHighFirst: true });
       return;
     }
     if (query.includes("date")) {
-      jumpToTab("dates");
+      jumpToField("dates");
       return;
     }
     if (query.includes("overview")) {
-      jumpToTab("overview");
+      jumpToField("overview");
       return;
     }
     if (
@@ -722,15 +1057,15 @@ export default function Home() {
       query.includes("payment") ||
       query.includes("pricing")
     ) {
-      jumpToTab("terms");
+      jumpToField("terms");
       return;
     }
     if (query.includes("clause")) {
-      jumpToTab("clauses");
+      jumpToField("clauses");
       return;
     }
     if (query.includes("watch")) {
-      jumpToTab("watch");
+      jumpToField("watch");
       return;
     }
 
@@ -739,37 +1074,6 @@ export default function Home() {
 
   const handlePaletteKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") runPaletteQuery(paletteQuery);
-  };
-
-  // ----- Ask mode -----
-
-  const submitAsk = async (question: string) => {
-    const q = question.trim();
-    if (!q || !contractText || askLoading) return;
-
-    setAskLoading(true);
-    setAskError("");
-
-    try {
-      const res = await fetch("/api/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contractText, question: q }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setAskError(data.error || "Couldn't get an answer.");
-        return;
-      }
-
-      setAskHistory((prev) => [...prev, { question: q, answer: data.answer, sourceHint: data.sourceHint }]);
-      setAskQuestion("");
-    } catch {
-      setAskError("Couldn't reach the AI. Is the dev server running?");
-    } finally {
-      setAskLoading(false);
-    }
   };
 
   // ----- File selection -----
@@ -832,12 +1136,11 @@ export default function Home() {
     setContractText("");
     setAppState("idle");
     setViewMode("quickScan");
-    setWatchSortHighFirst(false);
+    setWatchSortHighFirst(true);
     setHighlight(null);
     setHighlightWatchIndex(null);
     setViewerCitation(null);
     setAskHistory([]);
-    setAskQuestion("");
     setAskError("");
 
     if (fileInputRef.current) {
@@ -877,18 +1180,16 @@ export default function Home() {
       setAnalysis(parsed);
       setRawAnalysis(raw);
       setContractText(typeof data.contractText === "string" ? data.contractText : "");
-      setActiveTab("overview");
 
       const topHighIndex = parsed?.thingsToWatch?.findIndex((w) => w.severity === "HIGH") ?? -1;
       setOpenWatchItems(new Set([topHighIndex >= 0 ? topHighIndex : 0]));
 
       setViewMode("quickScan");
-      setWatchSortHighFirst(false);
+      setWatchSortHighFirst(true);
       setHighlight(null);
       setHighlightWatchIndex(null);
       setViewerCitation(null);
       setAskHistory([]);
-      setAskQuestion("");
       setAskError("");
       setAppState("results");
     } catch {
@@ -905,12 +1206,11 @@ export default function Home() {
     setError("");
     setAppState("idle");
     setViewMode("quickScan");
-    setWatchSortHighFirst(false);
+    setWatchSortHighFirst(true);
     setHighlight(null);
     setHighlightWatchIndex(null);
     setViewerCitation(null);
     setAskHistory([]);
-    setAskQuestion("");
     setAskError("");
 
     if (fileInputRef.current) {
@@ -946,6 +1246,8 @@ export default function Home() {
 
   const watchCount = analysis?.thingsToWatch?.length ?? 0;
   const highCount = analysis?.thingsToWatch?.filter((w) => w.severity === "HIGH").length ?? 0;
+  const mediumCount = analysis?.thingsToWatch?.filter((w) => w.severity === "MEDIUM").length ?? 0;
+  const lowCount = analysis?.thingsToWatch?.filter((w) => w.severity === "LOW").length ?? 0;
 
   const displayedWatchItems = (analysis?.thingsToWatch ?? []).map((item, i) => ({ item, i }));
   if (watchSortHighFirst) {
@@ -982,6 +1284,22 @@ export default function Home() {
 
   const topHighIndex = analysis?.thingsToWatch?.findIndex((w) => w.severity === "HIGH") ?? -1;
   const topHighItem = topHighIndex >= 0 ? analysis!.thingsToWatch![topHighIndex] : null;
+
+  const isHighlighted = (tab: TabKey, key: string) => highlight?.tab === tab && highlight.key === key;
+
+  // Zone 1's fields are individual JSX (not a .map() over a field list, since
+  // each one has distinct typography), so each ref callback is precomputed
+  // here via .reduce() into a lookup rather than called inline in the JSX
+  // below — inline calls to registerFieldRef() outside of a .map() trip the
+  // ref-safety lint rule, even though the callback itself only ever runs
+  // outside render, as a genuine ref attach/detach.
+  const overviewFieldRefs = (["contractName", "purpose", "status", "contractType", "parties"] as const).reduce(
+    (acc, key) => {
+      acc[key] = registerFieldRef("overview", key);
+      return acc;
+    },
+    {} as Record<string, (el: HTMLElement | null) => void>
+  );
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -1111,7 +1429,7 @@ export default function Home() {
                     <h2 className="max-w-full truncate px-4 text-[15px] font-semibold text-foreground">
                       {selectedFile.name}
                     </h2>
-                    <p className="mt-1.5 text-sm tabular-nums text-muted">{formatFileSize(selectedFile.size)}</p>
+                    <p className="mt-1.5 text-[13px] tabular-nums text-muted">{formatFileSize(selectedFile.size)}</p>
 
                     <div className="mt-5 flex gap-2.5">
                       <button
@@ -1170,9 +1488,9 @@ export default function Home() {
             <div className="rounded-lg border border-hairline bg-surface shadow-panel">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-5 py-3.5">
                 <div>
-                  <h2 className="text-base font-semibold text-foreground">Analysis results</h2>
+                  <h2 className="text-[15px] font-semibold text-foreground">Analysis results</h2>
                   {selectedFile && (
-                    <p className="mt-0.5 text-sm text-muted">
+                    <p className="mt-0.5 text-[13px] text-muted">
                       {selectedFile.name}
                       {watchCount > 0 && (
                         <span className="ml-2 tabular-nums text-muted">
@@ -1234,7 +1552,7 @@ export default function Home() {
 
                   {viewMode === "quickScan" && (
                     <div className="animate-fade-in px-5 py-4">
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Key facts</p>
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.04em] text-muted">Key facts</p>
                       <div>
                         {quickScanFields.length > 0 ? (
                           quickScanFields.map((f) => (
@@ -1253,7 +1571,7 @@ export default function Home() {
 
                       {topHighItem && (
                         <div className="mt-5 border-t border-hairline pt-4">
-                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Top risk</p>
+                          <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.04em] text-muted">Top risk</p>
                           <WatchAccordionItem
                             item={topHighItem}
                             open={openWatchItems.has(topHighIndex)}
@@ -1275,106 +1593,173 @@ export default function Home() {
                   )}
 
                   {viewMode === "fullReview" && (
-                    <>
-                      <div className="flex gap-1 overflow-x-auto border-b border-hairline px-4 pt-2">
-                        {TABS.map((tab) => {
-                          const isWatchTab = tab.key === "watch";
-                          const active = activeTab === tab.key;
-                          return (
-                            <button
-                              key={tab.key}
-                              type="button"
-                              onClick={() => setActiveTab(tab.key)}
-                              className={`whitespace-nowrap rounded-t-md border-b-2 px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
-                                active
-                                  ? "border-accent text-foreground"
-                                  : "border-transparent text-muted hover:text-foreground"
-                              }`}
-                            >
-                              {tab.label}
-                              {isWatchTab && watchCount > 0 && (
-                                <span
-                                  className={`ml-1.5 rounded px-1 py-0.5 text-[10px] font-semibold tabular-nums ${
-                                    highCount > 0
-                                      ? "bg-severity-high-bg text-severity-high"
-                                      : "bg-surface-raised text-muted"
-                                  }`}
+                    <div className="animate-fade-in space-y-5 px-5 py-5">
+                      {/* Zone 1 — Contract identity */}
+                      {analysis.contractOverview && (
+                        <section className="rounded-lg border border-hairline bg-background/30 p-5">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
+                            Contract identity
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <HighlightField
+                                as="h2"
+                                className="text-2xl font-semibold tracking-[-0.02em] text-foreground"
+                                active={isHighlighted("overview", "contractName")}
+                                forwardedRef={overviewFieldRefs.contractName}
+                              >
+                                {analysis.contractOverview.contractName.value}
+                              </HighlightField>
+                              {analysis.contractOverview.purpose.value !== "Not found" && (
+                                <HighlightField
+                                  as="p"
+                                  className="mt-1.5 max-w-xl text-sm leading-6 text-muted"
+                                  active={isHighlighted("overview", "purpose")}
+                                  forwardedRef={overviewFieldRefs.purpose}
                                 >
-                                  {watchCount}
-                                </span>
+                                  {analysis.contractOverview.purpose.value}
+                                </HighlightField>
                               )}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      <div key={activeTab} className="animate-fade-in px-5 py-4">
-                        {activeTab === "overview" && analysis.contractOverview && (
-                          <div>
-                            {(Object.keys(overviewLabels) as (keyof ContractOverview)[]).map((key) => (
-                              <FieldRow
-                                key={key}
-                                label={overviewLabels[key]}
-                                field={analysis.contractOverview![key]}
-                                highlighted={highlight?.tab === "overview" && highlight.key === key}
-                                forwardedRef={registerFieldRef("overview", key)}
-                                onOpenCitation={openCitation}
-                              />
-                            ))}
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <HighlightField
+                                as="span"
+                                className="inline-flex items-center gap-1.5 rounded-full border border-hairline-strong bg-surface-raised px-2.5 py-1 text-xs font-medium text-foreground"
+                                active={isHighlighted("overview", "status")}
+                                forwardedRef={overviewFieldRefs.status}
+                              >
+                                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                                {analysis.contractOverview.status.value}
+                              </HighlightField>
+                              {analysis.contractOverview.contractType.value !== "Not found" && (
+                                <HighlightField
+                                  as="p"
+                                  className="mt-2 text-xs text-muted"
+                                  active={isHighlighted("overview", "contractType")}
+                                  forwardedRef={overviewFieldRefs.contractType}
+                                >
+                                  {analysis.contractOverview.contractType.value}
+                                </HighlightField>
+                              )}
+                              {analysis.contractOverview.parties.value !== "Not found" && (
+                                <HighlightField
+                                  as="p"
+                                  className="mt-0.5 text-sm font-semibold text-foreground"
+                                  active={isHighlighted("overview", "parties")}
+                                  forwardedRef={overviewFieldRefs.parties}
+                                >
+                                  {analysis.contractOverview.parties.value}
+                                </HighlightField>
+                              )}
+                            </div>
                           </div>
-                        )}
+                        </section>
+                      )}
 
-                        {activeTab === "dates" && analysis.importantDates && (
-                          <div>
-                            {(Object.keys(datesLabels) as (keyof ImportantDates)[]).map((key) => (
-                              <FieldRow
-                                key={key}
-                                label={datesLabels[key]}
-                                field={analysis.importantDates![key]}
-                                mono
-                                highlighted={highlight?.tab === "dates" && highlight.key === key}
-                                forwardedRef={registerFieldRef("dates", key)}
-                                onOpenCitation={openCitation}
-                              />
-                            ))}
+                      {/* Zone 2 — Important dates */}
+                      {analysis.importantDates && (
+                        <section className="rounded-lg border border-hairline bg-background/30 p-5">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
+                            Important dates
+                          </p>
+                          <Timeline
+                            markers={[
+                              { label: "Start", field: analysis.importantDates.startDate },
+                              { label: "Notice deadline", field: analysis.importantDates.noticeDeadline },
+                              {
+                                label: "Renewal / end",
+                                field:
+                                  analysis.importantDates.renewalDate.value !== "Not found"
+                                    ? analysis.importantDates.renewalDate
+                                    : analysis.importantDates.endDate,
+                              },
+                            ]}
+                          />
+                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                            {(Object.keys(datesLabels) as (keyof ImportantDates)[])
+                              .filter((key) => analysis.importantDates![key].value !== "Not found")
+                              .map((key) => (
+                                <FieldCard
+                                  key={key}
+                                  label={datesLabels[key]}
+                                  field={analysis.importantDates![key]}
+                                  mono
+                                  highlighted={isHighlighted("dates", key)}
+                                  forwardedRef={registerFieldRef("dates", key)}
+                                  onOpenCitation={openCitation}
+                                />
+                              ))}
                           </div>
-                        )}
+                        </section>
+                      )}
 
-                        {activeTab === "terms" && analysis.commercialTerms && (
-                          <div>
+                      {/* Zone 3 — Commercial terms */}
+                      {analysis.commercialTerms && (
+                        <section className="rounded-lg border border-hairline bg-background/30 p-5">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
+                            Commercial terms
+                          </p>
+                          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
                             {(Object.keys(termsLabels) as (keyof CommercialTerms)[]).map((key) => (
-                              <FieldRow
+                              <FieldCard
                                 key={key}
                                 label={termsLabels[key]}
                                 field={analysis.commercialTerms![key]}
                                 mono
-                                highlighted={highlight?.tab === "terms" && highlight.key === key}
+                                primary
+                                highlighted={isHighlighted("terms", key)}
                                 forwardedRef={registerFieldRef("terms", key)}
                                 onOpenCitation={openCitation}
                               />
                             ))}
                           </div>
-                        )}
+                        </section>
+                      )}
 
-                        {activeTab === "clauses" && analysis.keyClauses && (
-                          <div>
+                      {/* Zone 4 — Key clauses */}
+                      {analysis.keyClauses && (
+                        <section className="rounded-lg border border-hairline bg-background/30 p-5">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
+                            Key clauses
+                          </p>
+                          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                             {(Object.keys(clausesLabels) as (keyof KeyClauses)[]).map((key) => (
-                              <FieldRow
+                              <ClauseCard
                                 key={key}
                                 label={clausesLabels[key]}
                                 field={analysis.keyClauses![key]}
-                                highlighted={highlight?.tab === "clauses" && highlight.key === key}
+                                highlighted={isHighlighted("clauses", key)}
                                 forwardedRef={registerFieldRef("clauses", key)}
                                 onOpenCitation={openCitation}
                               />
                             ))}
                           </div>
-                        )}
+                        </section>
+                      )}
 
-                        {activeTab === "watch" && (
-                          <div>
-                            {watchCount > 0 ? (
-                              displayedWatchItems.map(({ item, i }) => (
+                      {/* Zone 5 — Things to watch */}
+                      <section className="relative overflow-hidden rounded-lg border border-severity-high-border bg-background/30 p-5">
+                        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_70%_at_50%_0%,rgba(248,113,113,0.07),transparent)]" />
+                        <div className="relative flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-severity-high">
+                            Things to watch
+                          </p>
+                          {watchCount > 0 && (
+                            <p className="text-xs tabular-nums text-muted">
+                              {[
+                                highCount > 0 ? `${highCount} high` : null,
+                                mediumCount > 0 ? `${mediumCount} medium` : null,
+                                lowCount > 0 ? `${lowCount} low` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          )}
+                        </div>
+                        <div className="relative mt-4">
+                          {watchCount > 0 ? (
+                            <div className="space-y-2">
+                              {displayedWatchItems.map(({ item, i }) => (
                                 <WatchAccordionItem
                                   key={i}
                                   item={item}
@@ -1384,81 +1769,22 @@ export default function Home() {
                                   highlighted={highlightWatchIndex === i}
                                   forwardedRef={registerWatchRef(i)}
                                   onOpenCitation={openCitation}
+                                  inlineCitation
                                 />
-                              ))
-                            ) : (
-                              <p className="text-sm text-muted">Nothing flagged for review.</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {viewMode === "ask" && (
-                    <div className="animate-fade-in px-5 py-4">
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
-                        Ask about this contract
-                      </p>
-                      <p className="mb-4 text-xs text-muted">
-                        Answers are generated only from the uploaded contract text.
-                      </p>
-
-                      {askHistory.length > 0 && (
-                        <div className="mb-4 space-y-3">
-                          {askHistory.map((entry, i) => (
-                            <div key={i} className="rounded-md border border-hairline bg-background/40 p-3">
-                              <p className="text-sm font-medium text-foreground">{entry.question}</p>
-                              <p className="mt-1.5 whitespace-pre-wrap text-sm leading-5 text-muted">{entry.answer}</p>
-                              {entry.sourceHint && (
-                                <p className="mt-1.5 text-xs text-muted">Source: {entry.sourceHint}</p>
-                              )}
+                              ))}
                             </div>
-                          ))}
+                          ) : (
+                            <p className="py-2.5 text-sm text-muted">No significant risks flagged.</p>
+                          )}
                         </div>
-                      )}
-
-                      {askLoading && (
-                        <div className="mb-4 flex items-center gap-2 text-sm text-muted">
-                          <SpinnerIcon />
-                          Thinking…
-                        </div>
-                      )}
-
-                      {askError && (
-                        <p role="alert" className="mb-4 text-sm font-medium text-severity-high">
-                          {askError}
-                        </p>
-                      )}
-
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          void submitAsk(askQuestion);
-                        }}
-                        className="flex items-center gap-2"
-                      >
-                        <input
-                          type="text"
-                          value={askQuestion}
-                          onChange={(e) => setAskQuestion(e.target.value)}
-                          placeholder="Ask a question about this contract…"
-                          className="flex-1 rounded-md border border-hairline bg-background/40 px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                        />
-                        <button
-                          type="submit"
-                          disabled={askLoading || !askQuestion.trim()}
-                          className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors duration-200 hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                        >
-                          Ask
-                        </button>
-                      </form>
+                      </section>
                     </div>
                   )}
+
                 </>
               ) : (
                 <div className="px-5 py-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  <h3 className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
                     Raw response
                   </h3>
                   <p className="mt-2 whitespace-pre-wrap font-mono text-sm leading-5 text-foreground">{rawAnalysis}</p>
@@ -1477,7 +1803,7 @@ export default function Home() {
         <section id="coverage" className="border-t border-hairline bg-surface/40">
           <div className="mx-auto max-w-4xl px-6 py-16">
             <div className="mb-8 text-center">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Coverage</p>
+              <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">Coverage</p>
               <h2 className="mt-2 text-2xl font-semibold tracking-[-0.02em] text-foreground sm:text-3xl">
                 What we extract from every contract
               </h2>
@@ -1511,7 +1837,7 @@ export default function Home() {
         <section id="pricing" className="border-t border-hairline">
           <div className="mx-auto max-w-5xl px-6 py-16">
             <div className="mb-10 text-center">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Pricing</p>
+              <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">Pricing</p>
               <h2 className="mt-2 text-2xl font-semibold tracking-[-0.02em] text-foreground sm:text-3xl">
                 Simple, transparent pricing
               </h2>
@@ -1583,9 +1909,8 @@ export default function Home() {
         type="button"
         onClick={() => {
           setPaletteQuery("");
-          setPaletteMessage(null);
-          setPaletteAnswer(null);
           setPaletteOpen(true);
+          setPaletteRendered(true);
         }}
         className="fixed bottom-5 right-5 z-40 flex items-center gap-1.5 rounded-full border border-hairline bg-surface/90 px-3.5 py-2 text-xs font-medium text-muted shadow-panel backdrop-blur-md transition-colors duration-200 hover:border-hairline-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
@@ -1595,72 +1920,95 @@ export default function Home() {
       </button>
 
       {/* Command palette */}
-      {paletteOpen && (
+      {paletteRendered && (
         <div
           role="presentation"
           onClick={() => setPaletteOpen(false)}
-          className="animate-fade-in fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-[12vh] backdrop-blur-sm"
+          className={`fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-[12vh] backdrop-blur-sm ${
+            paletteOpen ? "animate-backdrop-in" : "animate-backdrop-out"
+          }`}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-label="Command palette"
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-lg overflow-hidden rounded-lg border border-hairline bg-surface shadow-panel"
+            className={`w-full max-w-lg overflow-hidden rounded-lg border border-hairline bg-surface shadow-panel ${
+              paletteOpen ? "animate-palette-in" : "animate-palette-out"
+            }`}
           >
             <div className="flex items-center gap-2.5 border-b border-hairline px-4 py-3">
               <input
                 ref={paletteInputRef}
                 type="text"
                 value={paletteQuery}
-                onChange={(e) => {
-                  setPaletteQuery(e.target.value);
-                  setPaletteMessage(null);
-                  setPaletteAnswer(null);
-                }}
+                onChange={(e) => setPaletteQuery(e.target.value)}
                 onKeyDown={handlePaletteKeyDown}
-                placeholder={analysis ? 'Search fields — e.g. "termination clause"' : "Upload a contract to get started"}
+                placeholder={analysis ? 'Search fields, or ask a question…' : "Upload a contract to get started"}
                 disabled={!analysis}
                 className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none disabled:cursor-not-allowed"
               />
               <kbd className="rounded border border-hairline-strong px-1.5 py-0.5 text-[10px] text-muted">Esc</kbd>
             </div>
 
-            <div className="max-h-72 overflow-y-auto px-2 py-2">
+            <div className="max-h-96 overflow-y-auto px-2 py-2">
               {!analysis ? (
                 <p className="px-2.5 py-3 text-sm text-muted">Upload a contract to get started.</p>
-              ) : paletteQuery.trim() === "" ? (
-                <>
-                  <p className="px-2.5 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                    Suggested
-                  </p>
-                  {PALETTE_SUGGESTIONS.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => runPaletteQuery(s)}
-                      className="block w-full rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </>
-              ) : paletteAsking ? (
-                <div className="flex items-center gap-2 px-2.5 py-3 text-sm text-muted">
-                  <SpinnerIcon />
-                  Thinking…
-                </div>
-              ) : paletteAnswer ? (
-                <div className="px-2.5 py-2.5">
-                  <p className="text-sm leading-5 text-foreground">{paletteAnswer.answer}</p>
-                  {paletteAnswer.sourceHint && (
-                    <p className="mt-1.5 text-xs text-muted">Source: {paletteAnswer.sourceHint}</p>
-                  )}
-                </div>
-              ) : paletteMessage ? (
-                <p className="px-2.5 py-3 text-sm text-muted">{paletteMessage}</p>
               ) : (
-                <p className="px-2.5 py-3 text-xs text-muted">Press Enter to search — no matching field will ask the AI directly.</p>
+                <>
+                  {paletteQuery.trim() === "" && askHistory.length === 0 && (
+                    <>
+                      <p className="px-2.5 pb-1.5 pt-1 text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
+                        Suggested
+                      </p>
+                      {PALETTE_SUGGESTIONS.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => runPaletteQuery(s)}
+                          className="block w-full rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Annotated log tied to the document — question, short answer,
+                      citation chip. Not a chat transcript: no avatars, no bubbles. */}
+                  {askHistory.length > 0 && (
+                    <div className="space-y-2 px-1 py-1">
+                      {askHistory.map((entry, i) => (
+                        <div key={i} className="rounded-md border border-hairline bg-background/40 p-3">
+                          <p className="text-[13px] font-medium text-muted">{entry.question}</p>
+                          <p className="mt-1 text-sm leading-5 text-foreground">{entry.answer}</p>
+                          {entry.sourceHint && (
+                            <div className="mt-1.5">
+                              <SourceHintBadge hint={entry.sourceHint} />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {askLoading && (
+                    <div className="flex items-center gap-2 px-2.5 py-3 text-sm text-muted">
+                      <SpinnerIcon />
+                      Thinking…
+                    </div>
+                  )}
+
+                  {askError && (
+                    <p role="alert" className="px-2.5 py-2 text-sm font-medium text-severity-high">
+                      {askError}
+                    </p>
+                  )}
+
+                  {paletteQuery.trim() !== "" && askHistory.length === 0 && !askLoading && !askError && (
+                    <p className="px-2.5 py-3 text-xs text-muted">Press Enter to search — no matching field will ask the AI directly.</p>
+                  )}
+                </>
               )}
             </div>
           </div>

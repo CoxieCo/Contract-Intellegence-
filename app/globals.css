@@ -20,6 +20,10 @@
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.14);
 
+  /* Motion — one easing curve, reused everywhere so the app has a single
+     "feel" instead of a different curve per component. */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+
   /* Severity — functional only, never reused decoratively elsewhere */
   --severity-high: #f87171;
   --severity-high-bg: rgba(248, 113, 113, 0.12);
@@ -35,6 +39,8 @@
 }
 
 @theme inline {
+  --ease-standard: var(--ease-standard);
+
   --color-background: var(--background);
   --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
@@ -86,7 +92,98 @@ body {
 }
 
 .animate-fade-in {
-  animation: fade-in-up 0.4s ease-out both;
+  animation: fade-in-up 0.4s var(--ease-standard) both;
+}
+
+/* Height-animated expand/collapse — used by the Things to Watch accordion
+   and the Key Clauses "Read more" reveal, so both share one feel. The
+   grid-rows trick animates to an intrinsic height without measuring it
+   in JS; the inner wrapper's overflow keeps content clipped mid-transition. */
+.accordion-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 220ms var(--ease-standard);
+}
+
+.accordion-panel.is-open {
+  grid-template-rows: 1fr;
+}
+
+.accordion-panel > div {
+  overflow: hidden;
+}
+
+/* Button press feedback — a quick, subtle scale so clicks read as
+   registered before any async response comes back. Scoped to the exact
+   properties buttons already transition on hover (color/background/
+   border/shadow/transform) so existing hover behavior is untouched;
+   only the shared easing curve and the :active scale are added. */
+button:not(:disabled) {
+  transition-property: color, background-color, border-color, box-shadow, transform;
+  transition-timing-function: var(--ease-standard);
+}
+
+button:not(:disabled):active {
+  transform: scale(0.97);
+  transition-duration: 100ms;
+}
+
+/* Command palette entry/exit — scale + fade, paired with a backdrop fade.
+   Exit is intentionally faster than entry. */
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes palette-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@keyframes backdrop-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes backdrop-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.animate-palette-in {
+  animation: palette-in 250ms var(--ease-standard) both;
+}
+
+.animate-palette-out {
+  animation: palette-out 150ms var(--ease-standard) both;
+}
+
+.animate-backdrop-in {
+  animation: backdrop-fade-in 250ms var(--ease-standard) both;
+}
+
+.animate-backdrop-out {
+  animation: backdrop-fade-out 150ms var(--ease-standard) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

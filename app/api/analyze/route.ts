@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
 
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-5",
-      max_tokens: 4096,
+      max_tokens: 8192,
       messages: [
         {
           role: "user",
@@ -149,6 +149,15 @@ ${pageMarkedText}`,
     // since its response is already mid-JSON-object before it writes a token.
     const responseText =
       message.content[0].type === "text" ? "{" + message.content[0].text : "";
+
+    if (message.stop_reason === "max_tokens") {
+      // Distinguishes "model drifted into prose" from "response was cut off
+      // mid-JSON" — both fail parseAnalysisJson below, but only this one means
+      // max_tokens needs raising further rather than a prompting fix.
+      console.error(
+        `Analysis for "${file.name}" was truncated at the max_tokens limit (${message.usage.output_tokens} output tokens).`
+      );
+    }
 
     // Persist a copy for the dashboard. A save failure shouldn't block the
     // user from seeing their result, so this never throws past this block —

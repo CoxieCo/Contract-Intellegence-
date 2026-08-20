@@ -3,8 +3,16 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { ChangeEvent, DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
-import { CURRENT_ANALYSIS_STORAGE_KEY, VIEW_REQUEST_STORAGE_KEY, severityStyles, severityCardStyle } from "@/lib/contract-analysis";
+import {
+  CURRENT_ANALYSIS_STORAGE_KEY,
+  VIEW_REQUEST_STORAGE_KEY,
+  severityStyles,
+  severityCardStyle,
+  severityDotClass,
+  zoneTone,
+} from "@/lib/contract-analysis";
 import Spinner from "./components/Spinner";
+import SeeItInAction from "./components/SeeItInAction";
 
 // react-pdf depends on browser-only APIs (Canvas, DOMMatrix, the PDF.js worker) and
 // must never be evaluated during SSR — see react-pdf's Next.js App Router setup notes.
@@ -148,8 +156,12 @@ const PALETTE_SUGGESTIONS = [
 // "was $X" figures only if that reflects a real prior price, otherwise drop the
 // strikethrough rather than imply a discount that didn't happen.
 
-const coverageItems = [
-  { label: "Renewal & notice dates", note: "Start, end, renewal, notice period, notice deadline" },
+const coverageItems: { label: string; note: string; highlight?: string }[] = [
+  {
+    label: "Renewal & notice dates",
+    note: "Start, end, renewal, notice period, notice deadline",
+    highlight: "Never get auto-billed for a SaaS subscription you meant to cancel.",
+  },
   { label: "Payment & pricing terms", note: "Value, currency, payment terms, escalation" },
   { label: "Liability & indemnification", note: "Liability, liability cap, indemnity language" },
   { label: "Termination conditions", note: "Termination, early termination triggers" },
@@ -163,7 +175,7 @@ const pricingTiers = [
     price: "$49",
     originalPrice: "$79",
     period: "/month",
-    description: "For small ops teams getting started",
+    description: "For small ops and IT & Vendor Management teams getting started",
     features: [
       "Up to 25 contracts / month",
       "Full 5-category extraction",
@@ -177,7 +189,7 @@ const pricingTiers = [
     price: "$149",
     originalPrice: "$249",
     period: "/month",
-    description: "For growing operations teams",
+    description: "For growing operations and IT & Vendor Management teams",
     features: [
       "Up to 150 contracts / month",
       "Full 5-category extraction",
@@ -192,7 +204,7 @@ const pricingTiers = [
     price: "Custom",
     originalPrice: null,
     period: "",
-    description: "For larger contract volumes",
+    description: "For larger contract volumes across ops and IT & Vendor Management",
     features: [
       "Unlimited contracts",
       "Full 5-category extraction",
@@ -205,6 +217,16 @@ const pricingTiers = [
 ];
 
 // ---------- Helpers ----------
+
+// Purely cosmetic reframing of an already-extracted field — no new data, just
+// a small "Vendor contract" tag when the AI's own contractType classification
+// reads as a SaaS/software agreement, for IT/vendor-management readers scanning
+// a mixed batch of contracts.
+const VENDOR_CONTRACT_TYPE_PATTERN = /saas|software|subscription|vendor/i;
+
+function isVendorContractType(contractType: string): boolean {
+  return VENDOR_CONTRACT_TYPE_PATTERN.test(contractType);
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -357,6 +379,27 @@ function CheckIcon() {
   );
 }
 
+// Leading glyph on every citation chip (CiteSourceButton / CitationBadge /
+// SourceHintBadge) — present in all three states so the chip's shape never
+// jumps between "page+section", "page-only", and "no citation".
+function CiteIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-75">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted">
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.3-4.3" />
+    </svg>
+  );
+}
+
 // ---------- Presentational pieces ----------
 
 function CiteSourceButton({
@@ -388,8 +431,9 @@ function CiteSourceButton({
           if (hasLocation && onOpen) onOpen(page, section ?? null);
           else setShow((s) => !s);
         }}
-        className="whitespace-nowrap rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted transition-colors duration-200 hover:border-hairline-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-hairline bg-surface px-2 py-1 text-[11px] font-medium text-muted transition-colors duration-200 hover:border-hairline-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
+        <CiteIcon />
         {label}
       </button>
       {show && !hasLocation && (
@@ -410,7 +454,8 @@ function CiteSourceButton({
 // pill styling so citations read consistently across the app.
 function SourceHintBadge({ hint }: { hint: string }) {
   return (
-    <span className="inline-flex w-fit whitespace-nowrap rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted">
+    <span className="inline-flex w-fit items-center gap-1 whitespace-nowrap rounded border border-hairline bg-surface px-2 py-1 text-[11px] font-medium text-muted">
+      <CiteIcon />
       {hint}
     </span>
   );
@@ -548,8 +593,9 @@ function CitationBadge({
           if (hasPage && onOpen) onOpen(page, section ?? null);
           else setShowComingSoon((s) => !s);
         }}
-        className="whitespace-nowrap rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted transition-colors duration-200 hover:border-hairline-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-hairline bg-surface px-2 py-1 text-[11px] font-medium text-muted transition-colors duration-200 hover:border-hairline-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
+        <CiteIcon />
         {label ?? "Cite source"}
       </button>
       {showComingSoon && !hasPage && (
@@ -787,7 +833,8 @@ function WatchAccordionItem({
           className="flex flex-1 items-center gap-2.5 text-left text-muted transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <ChevronIcon open={open} />
-          <span className={`rounded border px-1.5 py-0.5 text-[11px] font-medium tracking-[0.04em] ${severityStyles(item.severity)}`}>
+          <span className={`inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 text-[11px] font-medium tracking-[0.04em] ${severityStyles(item.severity)}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${severityDotClass(item.severity)}`} />
             {item.severity}
           </span>
           <span className="text-sm font-medium text-foreground">{item.title}</span>
@@ -1292,6 +1339,7 @@ export default function Home() {
   const highCount = analysis?.thingsToWatch?.filter((w) => w.severity === "HIGH").length ?? 0;
   const mediumCount = analysis?.thingsToWatch?.filter((w) => w.severity === "MEDIUM").length ?? 0;
   const lowCount = analysis?.thingsToWatch?.filter((w) => w.severity === "LOW").length ?? 0;
+  const watchTone = zoneTone(analysis?.thingsToWatch ?? []);
 
   const displayedWatchItems = (analysis?.thingsToWatch ?? []).map((item, i) => ({ item, i }));
   if (watchSortHighFirst) {
@@ -1387,8 +1435,8 @@ export default function Home() {
             </h1>
 
             <p className="mx-auto mt-6 max-w-xl text-lg leading-7 text-muted">
-              Upload any contract PDF and get every date, term, and clause worth
-              reviewing — extracted in seconds, sourced back to the document.
+              Track every vendor contract, SaaS subscription, and renewal deadline
+              in one place — before they auto-bill you.
             </p>
 
             <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -1686,6 +1734,11 @@ export default function Home() {
                                   {analysis.contractOverview.contractType.value}
                                 </HighlightField>
                               )}
+                              {isVendorContractType(analysis.contractOverview.contractType.value) && (
+                                <span className="mt-1.5 inline-block rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted">
+                                  Vendor contract
+                                </span>
+                              )}
                               {analysis.contractOverview.parties.value !== "Not found" && (
                                 <HighlightField
                                   as="p"
@@ -1783,9 +1836,9 @@ export default function Home() {
                       )}
 
                       {/* Zone 5 — Things to watch */}
-                      <section className="rounded-md border border-severity-high-border bg-background/30 p-5">
+                      <section className={`rounded-md border ${watchTone.border} bg-background/30 p-5`}>
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-severity-high">
+                          <p className={`text-[11px] font-medium uppercase tracking-[0.04em] ${watchTone.label}`}>
                             Things to watch
                           </p>
                           {watchCount > 0 && (
@@ -1864,6 +1917,9 @@ export default function Home() {
                   <div>
                     <p className="text-sm font-medium text-foreground">{item.label}</p>
                     <p className="mt-0.5 text-xs text-muted">{item.note}</p>
+                    {item.highlight && (
+                      <p className="mt-1 text-xs text-accent">{item.highlight}</p>
+                    )}
                   </div>
                   <span className="flex shrink-0 items-center gap-1.5 rounded-md border border-hairline bg-surface-raised px-2.5 py-1 text-xs font-medium text-foreground">
                     <CheckIcon />
@@ -1875,6 +1931,9 @@ export default function Home() {
           </div>
         </section>
       )}
+
+      {/* See it in action — animated replay of real result screens, only on the marketing view */}
+      {appState !== "results" && <SeeItInAction />}
 
       {/* Pricing */}
       {appState !== "results" && (
@@ -1982,6 +2041,7 @@ export default function Home() {
             }`}
           >
             <div className="flex items-center gap-2.5 border-b border-hairline px-4 py-3">
+              <SearchIcon />
               <input
                 ref={paletteInputRef}
                 type="text"
@@ -2010,8 +2070,9 @@ export default function Home() {
                           key={s}
                           type="button"
                           onClick={() => runPaletteQuery(s)}
-                          className="block w-full rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors duration-200 hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors duration-200 hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         >
+                          <SearchIcon />
                           {s}
                         </button>
                       ))}

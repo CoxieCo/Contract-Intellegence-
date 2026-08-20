@@ -96,6 +96,32 @@ export const severityRank: Record<ThingToWatch["severity"], number> = {
   LOW: 2,
 };
 
+// Small colored dot rendered before a severity badge's label — same
+// dot-plus-label pattern as the status pill and the hero's "AI-powered" badge.
+export function severityDotClass(severity: ThingToWatch["severity"]) {
+  switch (severity) {
+    case "HIGH":
+      return "bg-severity-high";
+    case "MEDIUM":
+      return "bg-severity-medium";
+    case "LOW":
+    default:
+      return "bg-severity-low";
+  }
+}
+
+// Tone for a "Things to Watch" container, derived from the actual severity
+// mix inside it rather than hardcoded to HIGH — a container holding only
+// LOW findings (or none) shouldn't wear the same red frame as one with a
+// real HIGH-severity flag.
+export function zoneTone(items: { severity: ThingToWatch["severity"] }[]) {
+  const hasHigh = items.some((i) => i.severity === "HIGH");
+  const hasMedium = items.some((i) => i.severity === "MEDIUM");
+  if (hasHigh) return { border: "border-severity-high-border", label: "text-severity-high" };
+  if (hasMedium) return { border: "border-severity-medium-border", label: "text-severity-medium" };
+  return { border: "border-hairline", label: "text-muted" };
+}
+
 // The homepage writes the just-completed analysis here so the dashboard can
 // show a "Currently open" card for it — sessionStorage rather than a shared
 // store/context, since it only needs to survive within the same tab/session.

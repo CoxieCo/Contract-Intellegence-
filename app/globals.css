@@ -95,6 +95,40 @@ body {
   animation: fade-in-up 0.4s var(--ease-standard) both;
 }
 
+/* Small pop-in for a value that just resolved (a citation chip landing next
+   to a freshly-revealed field, a completion badge) — used by the homepage's
+   "See it in action" demo. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-pop-in {
+  animation: pop-in 260ms var(--ease-standard) both;
+}
+
+/* Text-cursor blink for the "See it in action" demo's typed question. */
+@keyframes caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-caret-blink {
+  animation: caret-blink 900ms steps(1) infinite;
+}
+
 /* Height-animated expand/collapse — used by the Things to Watch accordion
    and the Key Clauses "Read more" reveal, so both share one feel. The
    grid-rows trick animates to an intrinsic height without measuring it

@@ -12,6 +12,8 @@ import {
   severityRank,
   severityCardStyle,
   severityStyles,
+  severityDotClass,
+  zoneTone,
 } from "@/lib/contract-analysis";
 import Spinner from "../components/Spinner";
 
@@ -184,6 +186,7 @@ export default function DashboardPage() {
   const rollup = useMemo(() => buildRollup(analyses), [analyses]);
   const rollupHighCount = rollup.filter((i) => i.severity === "HIGH").length;
   const rollupMediumCount = rollup.filter((i) => i.severity === "MEDIUM").length;
+  const rollupTone = zoneTone(rollup);
 
   // Best-effort correlation between the client-only "current session" and a
   // stored row — no shared id exists between them, so file name is the only
@@ -294,7 +297,9 @@ export default function DashboardPage() {
               <div className="rounded-md border border-hairline bg-background/30 p-4">
                 <p className="text-xs text-muted">High-severity findings</p>
                 <p className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-2xl font-semibold tabular-nums text-severity-high">{crossHighCount}</span>
+                  <span className={`text-2xl font-semibold tabular-nums ${crossHighCount > 0 ? "text-severity-high" : "text-foreground"}`}>
+                    {crossHighCount}
+                  </span>
                   <span className="text-xs text-muted">open</span>
                 </p>
               </div>
@@ -319,12 +324,22 @@ export default function DashboardPage() {
                     <span className="h-1.5 w-1.5 rounded-full bg-accent" />
                     Currently open
                   </span>
-                  {currentSession.analysis.commercialTerms?.contractValue?.value &&
-                    currentSession.analysis.commercialTerms.contractValue.value !== "Not found" && (
-                      <div className="text-right">
-                        <p className="font-mono text-xl font-semibold tracking-[-0.01em] text-foreground">
-                          {currentSession.analysis.commercialTerms.contractValue.value}
-                        </p>
+                  {/* Contract value and severity badges are gated independently — a
+                      contract with no extracted value (NDAs, DPAs, supplier terms)
+                      still shows its severity summary instead of nothing at all. */}
+                  {(currentSession.analysis.commercialTerms?.contractValue?.value &&
+                    currentSession.analysis.commercialTerms.contractValue.value !== "Not found") ||
+                  currentSeverity.high > 0 ||
+                  currentSeverity.medium > 0 ||
+                  currentSeverity.low > 0 ? (
+                    <div className="text-right">
+                      {currentSession.analysis.commercialTerms?.contractValue?.value &&
+                        currentSession.analysis.commercialTerms.contractValue.value !== "Not found" && (
+                          <p className="font-mono text-xl font-semibold tracking-[-0.01em] text-foreground">
+                            {currentSession.analysis.commercialTerms.contractValue.value}
+                          </p>
+                        )}
+                      {(currentSeverity.high > 0 || currentSeverity.medium > 0 || currentSeverity.low > 0) && (
                         <div className="mt-1.5 flex justify-end gap-1.5">
                           {currentSeverity.high > 0 && (
                             <span className={`rounded border px-1.5 py-0.5 text-[11px] font-medium tracking-[0.04em] ${severityStyles("HIGH")}`}>
@@ -342,8 +357,9 @@ export default function DashboardPage() {
                             </span>
                           )}
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
+                  ) : null}
                 </div>
 
                 <h2 className="mt-3 text-xl font-semibold tracking-[-0.01em] text-foreground">
@@ -410,8 +426,9 @@ export default function DashboardPage() {
                           {preview ? (
                             <p className="flex items-start gap-1.5">
                               <span
-                                className={`shrink-0 rounded border px-1 py-0.5 text-[10px] font-medium tracking-[0.04em] ${severityStyles(preview.severity)}`}
+                                className={`inline-flex shrink-0 items-center gap-1 rounded border px-1 py-0.5 text-[10px] font-medium tracking-[0.04em] ${severityStyles(preview.severity)}`}
                               >
+                                <span className={`h-1.5 w-1.5 rounded-full ${severityDotClass(preview.severity)}`} />
                                 {preview.severity}
                               </span>
                               <span className="text-xs leading-4 text-muted">{preview.title}</span>
@@ -429,9 +446,9 @@ export default function DashboardPage() {
 
             {/* B5 — Cross-contract Things to Watch rollup */}
             {rollup.length > 0 && (
-              <section className="rounded-md border border-severity-high-border bg-background/30 p-5">
+              <section className={`rounded-md border ${rollupTone.border} bg-background/30 p-5`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-severity-high">
+                  <p className={`text-[11px] font-medium uppercase tracking-[0.04em] ${rollupTone.label}`}>
                     Things to watch — across your contracts
                   </p>
                   <p className="text-xs tabular-nums text-muted">
@@ -451,7 +468,8 @@ export default function DashboardPage() {
                       <div key={i} className={`rounded-md border p-3 ${severityCardStyle(item.severity)}`}>
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <span className="flex items-center gap-2">
-                            <span className={`rounded border px-1.5 py-0.5 text-[11px] font-medium tracking-[0.04em] ${severityStyles(item.severity)}`}>
+                            <span className={`inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 text-[11px] font-medium tracking-[0.04em] ${severityStyles(item.severity)}`}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${severityDotClass(item.severity)}`} />
                               {item.severity}
                             </span>
                             <span className="text-sm font-medium text-foreground">{item.title}</span>

@@ -13,6 +13,7 @@ import {
 } from "@/lib/contract-analysis";
 import Spinner from "./components/Spinner";
 import SeeItInAction from "./components/SeeItInAction";
+import Faq from "./components/Faq";
 import CiteChip from "./components/CiteChip";
 import ContractSummaryPrint from "./components/ContractSummaryPrint";
 
@@ -1302,6 +1303,7 @@ export default function Home() {
             <Link href="/dashboard" className="transition-colors duration-200 hover:text-foreground">Dashboard</Link>
             <a href="#coverage" className="transition-colors duration-200 hover:text-foreground">Coverage</a>
             <a href="#pricing" className="transition-colors duration-200 hover:text-foreground">Pricing</a>
+            <a href="#faq" className="transition-colors duration-200 hover:text-foreground">FAQ</a>
           </div>
           <button
             type="button"
@@ -1897,6 +1899,9 @@ export default function Home() {
           </div>
         </section>
       )}
+
+      {/* FAQ — only on the marketing view */}
+      {appState !== "results" && <Faq />}
 
       <footer className="border-t border-hairline">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-6 py-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">

@@ -479,13 +479,14 @@ function FieldRow({
   );
 }
 
-function parseDateLoose(value: string): number | null {
-  const t = Date.parse(value);
-  return Number.isNaN(t) ? null : t;
-}
-
 // Zone 2/3 card — micro-label + citation badge up top, the value reads as
 // the dominant "primary" text underneath (numbers people scan for first).
+// Real contracts often put compound/conditional language in these fields
+// too (a percentage escalation clause, a multi-part renewal term), not just
+// a plain date or dollar figure — so it reuses the same truncate-then-expand
+// interaction as Key Clauses' ClauseCard (same CLAUSE_PREVIEW_LENGTH cutoff,
+// same accordion-panel reveal, same "Read more" affordance) instead of
+// letting a long value either overflow the card or invent a second pattern.
 function FieldCard({
   label,
   field,
@@ -503,7 +504,19 @@ function FieldCard({
   forwardedRef?: (el: HTMLDivElement | null) => void;
   onOpenCitation?: (page: number, section: string | null) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const notFound = field.value === "Not found";
+  const isLong = !notFound && field.value.length > CLAUSE_PREVIEW_LENGTH;
+  const preview = isLong ? truncateAtWord(field.value, CLAUSE_PREVIEW_LENGTH) : field.value;
+  const remainder = isLong ? field.value.slice(preview.length) : "";
+  const valueTextClass = `tabular-nums ${mono ? "font-mono" : ""} ${
+    notFound
+      ? "text-sm italic text-muted"
+      : primary
+        ? "text-[20px] leading-6 font-semibold tracking-[-0.01em] text-foreground"
+        : "text-base font-semibold text-foreground"
+  }`;
+
   return (
     <div
       ref={forwardedRef}
@@ -515,17 +528,27 @@ function FieldCard({
         <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">{label}</span>
         <CiteChip page={field.page} section={field.section} onOpen={onOpenCitation} />
       </div>
-      <p
-        className={`mt-2 tabular-nums ${mono ? "font-mono" : ""} ${
-          notFound
-            ? "text-sm italic text-muted"
-            : primary
-              ? "text-[20px] leading-6 font-semibold tracking-[-0.01em] text-foreground"
-              : "text-base font-semibold text-foreground"
-        }`}
-      >
-        {field.value}
+      <p className={`mt-2 ${valueTextClass}`}>
+        {preview}
+        {isLong && !expanded ? "…" : ""}
       </p>
+      {isLong && (
+        <div className={`accordion-panel ${expanded ? "is-open" : ""}`}>
+          <div>
+            <p className={`pt-0.5 ${valueTextClass}`}>{remainder}</p>
+          </div>
+        </div>
+      )}
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          className="mt-1.5 flex items-center gap-1 text-xs font-medium text-accent transition-colors duration-200 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <ChevronIcon open={expanded} />
+          {expanded ? "Show less" : "Read more"}
+        </button>
+      )}
     </div>
   );
 }
@@ -628,46 +651,6 @@ function HighlightField({
     <span ref={forwardedRef} className={fullClassName}>
       {children}
     </span>
-  );
-}
-
-// Zone 2's timeline — deliberately simple (no library): a hairline bar with
-// up to 3 markers, positioned proportionally when the dates parse cleanly
-// and evenly spaced otherwise. "Not found" dates are filtered out by the
-// caller before markers ever reach this component.
-function Timeline({ markers }: { markers: { label: string; field: SourcedValue }[] }) {
-  const visible = markers.filter((m) => m.field.value !== "Not found");
-  if (visible.length === 0) return null;
-
-  const timestamps = visible.map((m) => parseDateLoose(m.field.value));
-  const allParsed = timestamps.every((t) => t !== null);
-  const min = allParsed ? Math.min(...(timestamps as number[])) : null;
-  const max = allParsed ? Math.max(...(timestamps as number[])) : null;
-  const spread = min !== null && max !== null ? max - min : null;
-
-  return (
-    <div className="relative mx-2 mb-8 mt-8 h-px bg-hairline-strong">
-      {visible.map((m, i) => {
-        const t = timestamps[i];
-        const pct =
-          spread && spread > 0 && t !== null && min !== null
-            ? ((t - min) / spread) * 100
-            : (i / Math.max(visible.length - 1, 1)) * 100;
-        return (
-          <div
-            key={m.label}
-            className="absolute top-0 flex -translate-x-1/2 flex-col items-center"
-            style={{ left: `${pct}%` }}
-          >
-            <span className="mb-1.5 -translate-y-full whitespace-nowrap text-[11px] text-muted">{m.label}</span>
-            <span className="h-2.5 w-2.5 -translate-y-1/2 rounded-full border-2 border-background bg-accent" />
-            <span className="mt-1.5 whitespace-nowrap font-mono text-xs font-semibold text-foreground">
-              {m.field.value}
-            </span>
-          </div>
-        );
-      })}
-    </div>
   );
 }
 
@@ -1662,20 +1645,7 @@ export default function Home() {
                           <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
                             Important dates
                           </p>
-                          <Timeline
-                            markers={[
-                              { label: "Start", field: analysis.importantDates.startDate },
-                              { label: "Notice deadline", field: analysis.importantDates.noticeDeadline },
-                              {
-                                label: "Renewal / end",
-                                field:
-                                  analysis.importantDates.renewalDate.value !== "Not found"
-                                    ? analysis.importantDates.renewalDate
-                                    : analysis.importantDates.endDate,
-                              },
-                            ]}
-                          />
-                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
                             {(Object.keys(datesLabels) as (keyof ImportantDates)[])
                               .filter((key) => analysis.importantDates![key].value !== "Not found")
                               .map((key) => (

@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
+
+// Generous enough for a genuinely long real contract, while rejecting the
+// unbounded arbitrary-text case — nothing this route does depends on the
+// text actually coming from an analyzed PDF, so without a cap it's a free
+// text-completion proxy for anyone who finds the endpoint.
+const MAX_CONTRACT_TEXT_LENGTH = 500_000;
 
 function parseAskResponse(text: string): { answer: string; sourceHint: string } {
   let cleaned = text.trim();
@@ -50,6 +57,15 @@ function parseHistory(value: unknown): HistoryTurn[] {
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req.headers);
+    const allowed = await checkRateLimit(ip, "ask");
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Too many questions. Please wait a few minutes and try again." },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
     const contractText = typeof body?.contractText === "string" ? body.contractText : "";
     const question = typeof body?.question === "string" ? body.question : "";
@@ -59,6 +75,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "Both contractText and question are required" },
         { status: 400 }
+      );
+    }
+
+    if (contractText.length > MAX_CONTRACT_TEXT_LENGTH) {
+      return NextResponse.json(
+        { error: "This contract is too long to ask questions about." },
+        { status: 413 }
       );
     }
 

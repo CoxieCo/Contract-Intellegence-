@@ -33,9 +33,18 @@ function ChevronRightIcon() {
 
 function XIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M18 6L6 18M6 6l12 12" />
     </svg>
+  );
+}
+
+function PageSkeleton() {
+  return (
+    <div
+      className="animate-pulse rounded-[3px] bg-surface-raised"
+      style={{ width: VIEWER_WIDTH, maxWidth: "100%", aspectRatio: "8.5 / 11" }}
+    />
   );
 }
 
@@ -127,7 +136,7 @@ export default function PdfViewer({
           />
         </div>
 
-        <div className="flex-1 overflow-auto bg-background/50 px-4 py-8">
+        <div className="flex-1 overflow-auto bg-background/50 bg-[radial-gradient(ellipse_60%_55%_at_50%_45%,rgba(91,121,255,0.10),transparent_70%)] px-4 py-8">
           {loadError ? (
             <p className="py-10 text-center text-sm font-medium text-severity-high">{loadError}</p>
           ) : (
@@ -143,18 +152,13 @@ export default function PdfViewer({
                   </div>
                 }
               >
-                <div className="rounded-[3px] bg-[#f7f6f2] p-2 shadow-[0_20px_45px_-20px_rgba(0,0,0,0.7)]">
+                <div className="rounded-[3px] bg-[#f7f6f2] p-2 shadow-panel">
                   <Page
                     pageNumber={currentPage}
                     width={VIEWER_WIDTH}
                     renderTextLayer={false}
                     renderAnnotationLayer={false}
-                    loading={
-                      <div className="flex items-center gap-2 py-10 text-sm text-muted">
-                        <Spinner />
-                        Loading page…
-                      </div>
-                    }
+                    loading={<PageSkeleton />}
                   />
                 </div>
               </Document>

@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Spinner from "./Spinner";
+import CiteChip from "./CiteChip";
 
 type TabKind = "keyfacts" | "watch" | "ask" | "speed";
 
@@ -64,15 +65,6 @@ function FileIcon({ className = "" }: { className?: string }) {
   );
 }
 
-function CiteIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-75">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
-    </svg>
-  );
-}
-
 function ChevronIcon({ open }: { open: boolean }) {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`}>
@@ -86,17 +78,6 @@ function CheckIcon({ className = "" }: { className?: string }) {
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M20 6L9 17l-5-5" />
     </svg>
-  );
-}
-
-// Same shell as the real results view's CitationBadge — a citation reads as
-// a designed system element here too, not a simplified marketing stand-in.
-function CiteChip({ label }: { label: string }) {
-  return (
-    <span className="animate-pop-in inline-flex items-center gap-1 whitespace-nowrap rounded border border-hairline bg-surface px-2 py-1 text-[11px] font-medium text-muted">
-      <CiteIcon />
-      {label}
-    </span>
   );
 }
 
@@ -156,7 +137,7 @@ function KeyFactsPanel({ state }: { state: DemoState }) {
                 <span className={`tabular-nums text-sm text-foreground ${row.mono ? "font-mono" : ""} ${i === 2 ? "font-semibold" : ""}`}>
                   {row.value}
                 </span>
-                {phase >= 2 && <CiteChip label={row.cite} />}
+                {phase >= 2 && <CiteChip actionable={false} label={row.cite} className="animate-pop-in" />}
               </span>
             </div>
           );
@@ -189,7 +170,7 @@ function WatchPanel({ state, onToggle }: { state: DemoState; onToggle: () => voi
               <span className="whitespace-nowrap rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted">
                 Why is this risky?
               </span>
-              {state.watchCite && <CiteChip label={WATCH_ITEM.cite} />}
+              {state.watchCite && <CiteChip actionable={false} label={WATCH_ITEM.cite} className="animate-pop-in" />}
             </div>
           </div>
           <div className={`accordion-panel ${state.watchOpen ? "is-open" : ""}`}>
@@ -226,7 +207,7 @@ function AskPanel({ state }: { state: DemoState }) {
           <p className="mt-1.5 text-sm leading-5 text-foreground">{ASK_ANSWER}</p>
           {state.askCite && (
             <div className="mt-2">
-              <CiteChip label={ASK_SOURCE_HINT} />
+              <CiteChip actionable={false} label={ASK_SOURCE_HINT} className="animate-pop-in" />
             </div>
           )}
         </div>
@@ -277,7 +258,7 @@ function SpeedPanel({ tab, state }: { tab: TabDef; state: DemoState }) {
               <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">{row.label}</span>
               <span className="flex items-center gap-2">
                 <span className={`tabular-nums text-sm text-foreground ${row.mono ? "font-mono" : ""}`}>{row.value}</span>
-                <CiteChip label={row.cite} />
+                <CiteChip actionable={false} label={row.cite} className="animate-pop-in" />
               </span>
             </div>
           );

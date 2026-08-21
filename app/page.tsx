@@ -13,6 +13,8 @@ import {
 } from "@/lib/contract-analysis";
 import Spinner from "./components/Spinner";
 import SeeItInAction from "./components/SeeItInAction";
+import CiteChip from "./components/CiteChip";
+import ContractSummaryPrint from "./components/ContractSummaryPrint";
 
 // react-pdf depends on browser-only APIs (Canvas, DOMMatrix, the PDF.js worker) and
 // must never be evaluated during SSR — see react-pdf's Next.js App Router setup notes.
@@ -379,18 +381,6 @@ function CheckIcon() {
   );
 }
 
-// Leading glyph on every citation chip (CiteSourceButton / CitationBadge /
-// SourceHintBadge) — present in all three states so the chip's shape never
-// jumps between "page+section", "page-only", and "no citation".
-function CiteIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-75">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
-    </svg>
-  );
-}
-
 function SearchIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted">
@@ -401,65 +391,6 @@ function SearchIcon() {
 }
 
 // ---------- Presentational pieces ----------
-
-function CiteSourceButton({
-  page,
-  section,
-  onOpen,
-}: {
-  page?: number | null;
-  section?: string | null;
-  onOpen?: (page: number, section: string | null) => void;
-}) {
-  const [show, setShow] = useState(false);
-
-  useEffect(() => {
-    if (!show) return;
-    const timeout = setTimeout(() => setShow(false), 2500);
-    return () => clearTimeout(timeout);
-  }, [show]);
-
-  const hasLocation = page != null;
-  const label = section ? `${section} →` : hasLocation ? `Page ${page} →` : "Cite source";
-
-  return (
-    <span className="relative inline-flex shrink-0">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (hasLocation && onOpen) onOpen(page, section ?? null);
-          else setShow((s) => !s);
-        }}
-        className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-hairline bg-surface px-2 py-1 text-[11px] font-medium text-muted transition-colors duration-200 hover:border-hairline-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <CiteIcon />
-        {label}
-      </button>
-      {show && !hasLocation && (
-        <span
-          role="status"
-          className="absolute right-0 top-full z-10 mt-1 w-max max-w-[220px] rounded-md border border-hairline bg-surface-raised px-2 py-1 text-[11px] leading-4 text-muted shadow-panel"
-        >
-          Source citation coming soon
-        </span>
-      )}
-    </span>
-  );
-}
-
-// Ask answers carry a free-text sourceHint (e.g. "Section 3, Termination")
-// rather than a real page number, so it can't reuse CiteSourceButton's
-// click-to-navigate behavior — but it reuses the exact same small, quiet
-// pill styling so citations read consistently across the app.
-function SourceHintBadge({ hint }: { hint: string }) {
-  return (
-    <span className="inline-flex w-fit items-center gap-1 whitespace-nowrap rounded border border-hairline bg-surface px-2 py-1 text-[11px] font-medium text-muted">
-      <CiteIcon />
-      {hint}
-    </span>
-  );
-}
 
 // Clause values can run to multi-sentence prose (termination conditions,
 // liability language). Below this length they render in full as before;
@@ -519,7 +450,7 @@ function FieldRow({
             {preview}
             {isLong && !expanded ? "…" : ""}
           </span>
-          <CiteSourceButton page={field.page} section={field.section} onOpen={onOpenCitation} />
+          <CiteChip page={field.page} section={field.section} arrow onOpen={onOpenCitation} />
         </span>
         {isLong && (
           <div className={`accordion-panel w-full ${expanded ? "is-open" : ""}`}>
@@ -547,67 +478,9 @@ function FieldRow({
   );
 }
 
-// Turns a model-extracted section reference like "Section 9.1-9.2" into the
-// compact "§9.1-9.2" notation used by the inline citation badges below —
-// display-only, doesn't touch what the backend actually extracted.
-function formatSectionLabel(section: string): string {
-  return section.replace(/^section\s+/i, "§");
-}
-
 function parseDateLoose(value: string): number | null {
   const t = Date.parse(value);
   return Number.isNaN(t) ? null : t;
-}
-
-// Zone-only citation badge (Full Review). Unlike CiteSourceButton, this
-// always shows the page/section text up front instead of hiding it behind
-// a click — but for the no-citation case it falls back to the exact same
-// "coming soon" honesty CiteSourceButton already uses, just restyled.
-function CitationBadge({
-  page,
-  section,
-  onOpen,
-}: {
-  page?: number | null;
-  section?: string | null;
-  onOpen?: (page: number, section: string | null) => void;
-}) {
-  const [showComingSoon, setShowComingSoon] = useState(false);
-
-  useEffect(() => {
-    if (!showComingSoon) return;
-    const timeout = setTimeout(() => setShowComingSoon(false), 2500);
-    return () => clearTimeout(timeout);
-  }, [showComingSoon]);
-
-  const hasPage = page != null;
-  const sectionLabel = section ? formatSectionLabel(section) : null;
-  const label = hasPage ? [`Page ${page}`, sectionLabel].filter(Boolean).join(" · ") : sectionLabel;
-
-  return (
-    <span className="relative inline-flex shrink-0">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (hasPage && onOpen) onOpen(page, section ?? null);
-          else setShowComingSoon((s) => !s);
-        }}
-        className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-hairline bg-surface px-2 py-1 text-[11px] font-medium text-muted transition-colors duration-200 hover:border-hairline-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <CiteIcon />
-        {label ?? "Cite source"}
-      </button>
-      {showComingSoon && !hasPage && (
-        <span
-          role="status"
-          className="absolute right-0 top-full z-10 mt-1 w-max max-w-[220px] rounded-md border border-hairline bg-surface-raised px-2 py-1 text-[11px] leading-4 text-muted shadow-panel"
-        >
-          Source citation coming soon
-        </span>
-      )}
-    </span>
-  );
 }
 
 // Zone 2/3 card — micro-label + citation badge up top, the value reads as
@@ -639,7 +512,7 @@ function FieldCard({
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">{label}</span>
-        <CitationBadge page={field.page} section={field.section} onOpen={onOpenCitation} />
+        <CiteChip page={field.page} section={field.section} onOpen={onOpenCitation} />
       </div>
       <p
         className={`mt-2 tabular-nums ${mono ? "font-mono" : ""} ${
@@ -687,7 +560,7 @@ function ClauseCard({
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm font-semibold text-foreground">{label}</span>
-        <CitationBadge page={field.page} section={field.section} onOpen={onOpenCitation} />
+        <CiteChip page={field.page} section={field.section} onOpen={onOpenCitation} />
       </div>
       <p className={`mt-1.5 text-sm leading-5 ${notFound ? "italic text-muted" : "text-muted"}`}>
         {preview}
@@ -805,7 +678,7 @@ function WatchAccordionItem({
   highlighted,
   forwardedRef,
   onOpenCitation,
-  inlineCitation,
+  arrow,
 }: {
   item: ThingToWatch;
   open: boolean;
@@ -814,10 +687,9 @@ function WatchAccordionItem({
   highlighted?: boolean;
   forwardedRef?: (el: HTMLDivElement | null) => void;
   onOpenCitation?: (page: number, section: string | null) => void;
-  // Zone 5 (Full Review) wants the always-visible page/section badge; Quick
-  // Scan's instance of this same component keeps the original click-to-cite
-  // button by leaving this unset, so its rendering is unaffected.
-  inlineCitation?: boolean;
+  // Quick Scan's "Top risk" instance passes this; Full Review's Zone 5 list
+  // doesn't — see the same note on CiteChip's `arrow` prop.
+  arrow?: boolean;
 }) {
   return (
     <div
@@ -850,11 +722,7 @@ function WatchAccordionItem({
           >
             Why is this risky?
           </button>
-          {inlineCitation ? (
-            <CitationBadge page={item.page} section={item.section} onOpen={onOpenCitation} />
-          ) : (
-            <CiteSourceButton page={item.page} section={item.section} onOpen={onOpenCitation} />
-          )}
+          <CiteChip page={item.page} section={item.section} arrow={arrow} onOpen={onOpenCitation} />
         </div>
       </div>
       <div className={`accordion-panel ${open ? "is-open" : ""}`}>
@@ -890,6 +758,13 @@ export default function Home() {
   // is no File object in that case, so this is what the header/citations fall
   // back to for a display name.
   const [archivedFileName, setArchivedFileName] = useState<string | null>(null);
+
+  // Stamped whenever a results view is entered (fresh analysis or a past one
+  // restored from the dashboard) — the print summary's footer date. Not a
+  // stored analysis timestamp (past analyses' original date isn't part of
+  // the dashboard handoff payload), so a revisited analysis prints today's
+  // date rather than the date it originally ran.
+  const [analyzedAt, setAnalyzedAt] = useState<Date | null>(null);
 
   // The conversation log lives here regardless of entry point (Cmd+K or the
   // "Ask AI" button) — both open the same docked palette/panel.
@@ -983,6 +858,7 @@ export default function Home() {
 
       setViewMode("quickScan");
       setWatchSortHighFirst(true);
+      setAnalyzedAt(new Date());
       setAppState("results");
 
       try {
@@ -1099,6 +975,11 @@ export default function Home() {
       setAskLoading(false);
     }
   };
+
+  // Same lookup runPaletteQuery uses at submit time, run on every keystroke so
+  // the palette can show what Enter will do before it's pressed.
+  const paletteMatch =
+    analysis && paletteQuery.trim() ? findBestMatch(paletteQuery, buildSearchIndex(analysis)) : null;
 
   const runPaletteQuery = (rawQuery: string) => {
     setPaletteQuery(rawQuery);
@@ -1219,6 +1100,7 @@ export default function Home() {
     setAskError("");
     sessionStorage.removeItem(CURRENT_ANALYSIS_STORAGE_KEY);
     setArchivedFileName(null);
+    setAnalyzedAt(null);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -1280,6 +1162,7 @@ export default function Home() {
       setViewerCitation(null);
       setAskHistory([]);
       setAskError("");
+      setAnalyzedAt(new Date());
       setAppState("results");
     } catch {
       setError("Couldn't reach the analysis service. Is the dev server running?");
@@ -1303,6 +1186,7 @@ export default function Home() {
     setAskError("");
     sessionStorage.removeItem(CURRENT_ANALYSIS_STORAGE_KEY);
     setArchivedFileName(null);
+    setAnalyzedAt(null);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -1333,6 +1217,14 @@ export default function Home() {
     } catch {
       setError("Couldn't copy to clipboard.");
     }
+  };
+
+  // No PDF library involved — #print-summary-root (see globals.css's
+  // @media print block) is already in the DOM, just hidden on screen, so
+  // this only has to trigger the browser's own print dialog. "Save as PDF"
+  // is one of its built-in destinations.
+  const handleExportPdf = () => {
+    window.print();
   };
 
   const watchCount = analysis?.thingsToWatch?.length ?? 0;
@@ -1612,6 +1504,13 @@ export default function Home() {
                   </button>
                   <button
                     type="button"
+                    onClick={handleExportPdf}
+                    className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-xs font-medium text-foreground transition-colors duration-200 hover:border-hairline-strong hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  >
+                    Export PDF
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleReset}
                     className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors duration-200 hover:bg-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                   >
@@ -1623,7 +1522,7 @@ export default function Home() {
               {analysis ? (
                 <>
                   {/* Mode switcher */}
-                  <div className="flex flex-wrap items-center gap-1 border-b border-hairline px-4 py-2.5">
+                  <div className="flex flex-wrap items-center gap-1 border-b border-hairline px-5 py-2.5">
                     {MODE_OPTIONS.map((mode) => {
                       const active = viewMode === mode.key;
                       return (
@@ -1671,6 +1570,7 @@ export default function Home() {
                             onToggle={() => toggleWatchItem(topHighIndex)}
                             onWhyRisky={() => handleWhyRisky(topHighIndex)}
                             onOpenCitation={openCitation}
+                            arrow
                           />
                         </div>
                       )}
@@ -1866,7 +1766,6 @@ export default function Home() {
                                   highlighted={highlightWatchIndex === i}
                                   forwardedRef={registerWatchRef(i)}
                                   onOpenCitation={openCitation}
-                                  inlineCitation
                                 />
                               ))}
                             </div>
@@ -1910,10 +1809,13 @@ export default function Home() {
               {coverageItems.map((item, i) => (
                 <div
                   key={item.label}
-                  className={`flex items-center justify-between gap-4 px-5 py-4 ${
+                  className={`flex items-start gap-2.5 px-5 py-4 ${
                     i !== coverageItems.length - 1 ? "border-b border-hairline" : ""
                   }`}
                 >
+                  <span className="mt-0.5 shrink-0 text-muted">
+                    <CheckIcon />
+                  </span>
                   <div>
                     <p className="text-sm font-medium text-foreground">{item.label}</p>
                     <p className="mt-0.5 text-xs text-muted">{item.note}</p>
@@ -1921,10 +1823,6 @@ export default function Home() {
                       <p className="mt-1 text-xs text-accent">{item.highlight}</p>
                     )}
                   </div>
-                  <span className="flex shrink-0 items-center gap-1.5 rounded-md border border-hairline bg-surface-raised px-2.5 py-1 text-xs font-medium text-foreground">
-                    <CheckIcon />
-                    Supported
-                  </span>
                 </div>
               ))}
             </div>
@@ -2052,6 +1950,17 @@ export default function Home() {
                 disabled={!analysis}
                 className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none disabled:cursor-not-allowed"
               />
+              {analysis && paletteQuery.trim() !== "" && (
+                <span
+                  className={`shrink-0 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-medium ${
+                    paletteMatch
+                      ? "border-accent/40 bg-accent/10 text-[#c9d3ff]"
+                      : "border-hairline bg-surface-raised text-muted"
+                  }`}
+                >
+                  {paletteMatch ? `↵ Jump to ${paletteMatch.label}` : "↵ Ask AI"}
+                </span>
+              )}
               <kbd className="rounded border border-hairline-strong px-1.5 py-0.5 text-[10px] text-muted">Esc</kbd>
             </div>
 
@@ -2088,7 +1997,7 @@ export default function Home() {
                           <p className="text-[13px] font-medium text-muted">{entry.question}</p>
                           <p className="mt-1 text-sm leading-5 text-foreground">{entry.answer}</p>
                           <div className="mt-1.5">
-                            <SourceHintBadge hint={entry.sourceHint || "No specific clause identified"} />
+                            <CiteChip actionable={false} label={entry.sourceHint || "No specific clause identified"} />
                           </div>
                         </div>
                       ))}
@@ -2108,9 +2017,6 @@ export default function Home() {
                     </p>
                   )}
 
-                  {paletteQuery.trim() !== "" && askHistory.length === 0 && !askLoading && !askError && (
-                    <p className="px-2.5 py-3 text-xs text-muted">Press Enter to search — no matching field will ask the AI directly.</p>
-                  )}
                 </>
               )}
             </div>
@@ -2159,6 +2065,17 @@ export default function Home() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Off-screen on every viewport; @media print in globals.css hides
+          everything else and pulls this into view when handleExportPdf's
+          window.print() runs. */}
+      {analysis && (
+        <ContractSummaryPrint
+          analysis={analysis}
+          fileName={selectedFile ? selectedFile.name : archivedFileName ?? "Contract"}
+          analyzedAt={analyzedAt ?? new Date()}
+        />
       )}
     </main>
   );

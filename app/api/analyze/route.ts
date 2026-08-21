@@ -2,10 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { PDFParse } from "pdf-parse";
 import { supabase } from "@/lib/supabase";
+import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
+import { getSessionId } from "@/lib/session";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
+
+// Mirrors MAX_FILE_SIZE_BYTES in app/page.tsx — that check is client-side
+// only (trivially bypassed by calling this route directly), so it's
+// re-enforced here before the file ever reaches pdf-parse or Claude.
+const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 
 // Mirrors the client's parseAnalysis() in app/page.tsx — Claude is asked for
 // raw JSON but sometimes wraps it in a code fence anyway.
@@ -28,7 +35,30 @@ function parseAnalysisJson(text: string): Record<string, unknown> | null {
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData();
+    const ip = getClientIp(req.headers);
+    const allowed = await checkRateLimit(ip, "analyze");
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Too many analysis requests. Please wait a few minutes and try again." },
+        { status: 429 }
+      );
+    }
+
+    let formData: FormData;
+    try {
+      formData = await req.formData();
+    } catch {
+      // A body past proxy.ts's buffer cap (next.config.ts's
+      // proxyClientMaxBodySize) gets silently truncated before it reaches
+      // here, which breaks multipart parsing. The practical cause is the
+      // same "file too large" case as the explicit check below, so it gets
+      // the same clean response instead of falling through to the generic
+      // 500 in the outer catch.
+      return NextResponse.json(
+        { error: "That PDF is larger than 15MB. Try a smaller file." },
+        { status: 413 }
+      );
+    }
     const file = formData.get("file") as File | null;
 
     if (!file) {
@@ -42,6 +72,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "Only PDF files are supported" },
         { status: 400 }
+      );
+    }
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return NextResponse.json(
+        { error: "That PDF is larger than 15MB. Try a smaller file." },
+        { status: 413 }
       );
     }
 
@@ -164,9 +201,10 @@ ${pageMarkedText}`,
     // parse failures and Supabase errors are both just logged.
     const parsedAnalysis = parseAnalysisJson(responseText);
     if (parsedAnalysis) {
+      const sessionId = getSessionId(req.headers);
       const { error: saveError } = await supabase
         .from("analyses")
-        .insert({ file_name: file.name, analysis: parsedAnalysis });
+        .insert({ file_name: file.name, analysis: parsedAnalysis, session_id: sessionId });
       if (saveError) {
         console.error("Failed to save analysis to Supabase:", {
           message: saveError.message,

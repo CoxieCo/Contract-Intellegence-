@@ -230,3 +230,45 @@ button:not(:disabled):active {
     scroll-behavior: auto !important;
   }
 }
+
+/* Contract summary print/export — everything but #print-summary-root is
+   hidden (not display:none, so it keeps its layout box and can't shift the
+   summary's absolute-positioned takeover of the page). The summary itself
+   and every descendant are made visible again and pulled out of flow to sit
+   at the page origin, the standard "print only this element" technique. */
+@page {
+  margin: 14mm;
+}
+
+@media print {
+  /* `body *` (below) hides body's children, not body itself, so its own
+     --background dark fill would otherwise still paint the full page —
+     visible wherever the print root's content doesn't cover it (short
+     summaries, page margins). */
+  body {
+    background: #fff;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #print-summary-root,
+  #print-summary-root * {
+    visibility: visible;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #print-summary-root {
+    /* top/left/width only — no bottom/inset. Setting bottom:0 would clamp
+       the box to the containing block's (viewport-sized) height and let
+       content taller than one page overflow past it, uncontained, with the
+       still-laid-out (merely invisible) app behind showing through in the
+       gap. Leaving height auto lets the box grow to fit its content instead. */
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+}

@@ -229,6 +229,8 @@ export default function DashboardPage() {
             </div>
             <span className="text-sm font-semibold tracking-tight text-foreground">Contract Intelligence</span>
           </Link>
+          <span className="text-sm text-muted">/</span>
+          <span className="text-sm font-medium text-foreground">Dashboard</span>
         </div>
       </header>
 
@@ -265,7 +267,7 @@ export default function DashboardPage() {
           <div className="animate-fade-in space-y-5">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {[0, 1, 2].map((i) => (
-                <div key={i} className="rounded-md border border-hairline bg-background/30 p-4">
+                <div key={i} className="rounded-md border border-hairline bg-surface p-4 shadow-panel">
                   <div className="h-3 w-28 animate-pulse rounded bg-surface-raised" />
                   <div className="mt-2.5 h-6 w-16 animate-pulse rounded bg-surface-raised" />
                 </div>
@@ -290,11 +292,11 @@ export default function DashboardPage() {
           <div className="animate-fade-in space-y-5">
             {/* B2 — Stat row */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="rounded-md border border-hairline bg-background/30 p-4">
+              <div className="rounded-md border border-hairline bg-surface p-4 shadow-panel">
                 <p className="text-xs text-muted">Contracts analyzed</p>
                 <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{totalCount}</p>
               </div>
-              <div className="rounded-md border border-hairline bg-background/30 p-4">
+              <div className="rounded-md border border-hairline bg-surface p-4 shadow-panel">
                 <p className="text-xs text-muted">High-severity findings</p>
                 <p className="mt-1 flex items-baseline gap-1.5">
                   <span className={`text-2xl font-semibold tabular-nums ${crossHighCount > 0 ? "text-severity-high" : "text-foreground"}`}>
@@ -303,7 +305,7 @@ export default function DashboardPage() {
                   <span className="text-xs text-muted">open</span>
                 </p>
               </div>
-              <div className="rounded-md border border-hairline bg-background/30 p-4">
+              <div className="rounded-md border border-hairline bg-surface p-4 shadow-panel">
                 <p className="text-xs text-muted">Next deadline</p>
                 {nearestDeadline ? (
                   <p className="mt-1 flex flex-wrap items-baseline gap-1.5">
@@ -408,7 +410,7 @@ export default function DashboardPage() {
                         key={row.id}
                         type="button"
                         onClick={() => viewContract(row.file_name, row.analysis)}
-                        className="w-64 shrink-0 rounded-md border border-hairline bg-background/30 p-4 text-left transition-colors duration-200 hover:border-hairline-strong hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        className="w-64 shrink-0 rounded-md border border-hairline bg-surface p-4 text-left shadow-panel transition-all duration-200 hover:-translate-y-0.5 hover:border-hairline-strong hover:bg-surface-raised hover:shadow-panel-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                       >
                         <p className="truncate text-sm font-semibold text-foreground">
                           {contractLabel(row.analysis, row.file_name)}

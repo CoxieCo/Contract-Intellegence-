@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { PDFParse } from "pdf-parse";
 import { supabase } from "@/lib/supabase";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 import { getSessionId } from "@/lib/session";
+import { STREAM_CONTRACT_TEXT_DELIMITER } from "@/lib/contract-analysis";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -34,9 +35,14 @@ function parseAnalysisJson(text: string): Record<string, unknown> | null {
 }
 
 export async function POST(req: NextRequest) {
+  // Temporary stage timing — see prompt "Diagnose and Fix Analysis Speed".
+  // Remove once the 60s slowdown is diagnosed and fixed.
+  const requestStart = Date.now();
   try {
     const ip = getClientIp(req.headers);
+    const rateLimitStart = Date.now();
     const allowed = await checkRateLimit(ip, "analyze");
+    console.log(`[timing] rate-limit check: ${Date.now() - rateLimitStart}ms`);
     if (!allowed) {
       return NextResponse.json(
         { error: "Too many analysis requests. Please wait a few minutes and try again." },
@@ -85,11 +91,13 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
+    const extractionStart = Date.now();
     const parser = new PDFParse({ data: buffer });
     // pageJoiner: "" suppresses pdf-parse's built-in "-- N of M --" page-boundary
     // marker so we can insert our own unambiguous "--- PAGE N ---" headers below.
     const pdfData = await parser.getText({ pageJoiner: "" });
     const contractText = pdfData.text;
+    console.log(`[timing] PDF extraction: ${Date.now() - extractionStart}ms`);
 
     if (!contractText || contractText.trim().length === 0) {
       return NextResponse.json(
@@ -102,7 +110,8 @@ export async function POST(req: NextRequest) {
       .map((p) => `--- PAGE ${p.num} ---\n${p.text}`)
       .join("\n\n");
 
-    const message = await anthropic.messages.create({
+    const claudeStart = Date.now();
+    const anthropicStream = anthropic.messages.stream({
       model: "claude-sonnet-4-5",
       max_tokens: 8192,
       messages: [
@@ -181,30 +190,28 @@ ${pageMarkedText}`,
       ],
     });
 
-    // The prefill above isn't echoed back by the API, so it's re-added here —
-    // this makes it structurally very hard for the model to reply in prose,
-    // since its response is already mid-JSON-object before it writes a token.
-    const responseText =
-      message.content[0].type === "text" ? "{" + message.content[0].text : "";
-
-    if (message.stop_reason === "max_tokens") {
-      // Distinguishes "model drifted into prose" from "response was cut off
-      // mid-JSON" — both fail parseAnalysisJson below, but only this one means
-      // max_tokens needs raising further rather than a prompting fix.
-      console.error(
-        `Analysis for "${file.name}" was truncated at the max_tokens limit (${message.usage.output_tokens} output tokens).`
-      );
-    }
-
-    // Persist a copy for the dashboard. A save failure shouldn't block the
-    // user from seeing their result, so this never throws past this block —
-    // parse failures and Supabase errors are both just logged.
-    const parsedAnalysis = parseAnalysisJson(responseText);
-    if (parsedAnalysis) {
-      const sessionId = getSessionId(req.headers);
+    // The save needs the fully-streamed, parsed analysis, which doesn't exist
+    // yet at this point — this promise is resolved from inside the stream
+    // below once the response is complete, and awaited from inside `after()`
+    // so the save still runs as real background work (not a bare
+    // fire-and-forget promise a serverless runtime could kill the instant
+    // the response goes out) without delaying the stream's own completion.
+    let resolveParsedAnalysis: (value: Record<string, unknown> | null) => void;
+    const parsedAnalysisPromise = new Promise<Record<string, unknown> | null>((resolve) => {
+      resolveParsedAnalysis = resolve;
+    });
+    const sessionId = getSessionId(req.headers);
+    after(async () => {
+      const parsedAnalysis = await parsedAnalysisPromise;
+      if (!parsedAnalysis) {
+        console.error("Skipped saving analysis: response was not valid JSON");
+        return;
+      }
+      const saveStart = Date.now();
       const { error: saveError } = await supabase
         .from("analyses")
         .insert({ file_name: file.name, analysis: parsedAnalysis, session_id: sessionId });
+      console.log(`[timing] Supabase save (background): ${Date.now() - saveStart}ms`);
       if (saveError) {
         console.error("Failed to save analysis to Supabase:", {
           message: saveError.message,
@@ -213,14 +220,55 @@ ${pageMarkedText}`,
           hint: saveError.hint,
         });
       }
-    } else {
-      console.error("Skipped saving analysis: response was not valid JSON");
-    }
+    });
 
-    return NextResponse.json({
-      success: true,
-      analysis: responseText,
-      contractText,
+    // Streams the analysis JSON back as plain text as Claude generates it —
+    // the frontend reveals each Full Review zone as soon as its section
+    // finishes streaming in, instead of waiting for the whole response. The
+    // prefill char is written first since it isn't echoed back by the API
+    // (same reasoning as the old non-streaming prefill comment: this makes
+    // it structurally very hard for the model to reply in prose). The
+    // contract text has no JSON envelope to travel in anymore, so it's
+    // appended after a delimiter once the analysis stream itself is done.
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        let fullText = "{";
+        controller.enqueue(encoder.encode(fullText));
+        try {
+          anthropicStream.on("text", (delta) => {
+            fullText += delta;
+            controller.enqueue(encoder.encode(delta));
+          });
+
+          const message = await anthropicStream.finalMessage();
+          console.log(`[timing] Claude API call (stream): ${Date.now() - claudeStart}ms`);
+
+          if (message.stop_reason === "max_tokens") {
+            // Distinguishes "model drifted into prose" from "response was cut
+            // off mid-JSON" — both fail parseAnalysisJson below, but only
+            // this one means max_tokens needs raising further rather than a
+            // prompting fix.
+            console.error(
+              `Analysis for "${file.name}" was truncated at the max_tokens limit (${message.usage.output_tokens} output tokens).`
+            );
+          }
+
+          controller.enqueue(encoder.encode(STREAM_CONTRACT_TEXT_DELIMITER + contractText));
+          resolveParsedAnalysis(parseAnalysisJson(fullText));
+          console.log(`[timing] TOTAL (stream complete): ${Date.now() - requestStart}ms`);
+        } catch (error) {
+          console.error("Analyze route error (mid-stream):", error);
+          resolveParsedAnalysis(null);
+          controller.error(error);
+          return;
+        }
+        controller.close();
+      },
+    });
+
+    return new Response(body, {
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
   } catch (error) {
     console.error("Analyze route error:", error);

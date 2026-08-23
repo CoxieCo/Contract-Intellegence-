@@ -6,6 +6,7 @@ import { ChangeEvent, DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode,
 import {
   CURRENT_ANALYSIS_STORAGE_KEY,
   VIEW_REQUEST_STORAGE_KEY,
+  STREAM_CONTRACT_TEXT_DELIMITER,
   severityStyles,
   severityCardStyle,
   severityDotClass,
@@ -253,6 +254,78 @@ function parseAnalysis(text: string): { data: ContractAnalysis | null; raw: stri
   } catch {
     return { data: null, raw: text };
   }
+}
+
+function skipWhitespace(text: string, index: number): number {
+  let i = index;
+  while (i < text.length && /\s/.test(text[i])) i++;
+  return i;
+}
+
+// Scans forward from `start` (the first character of a JSON value) tracking
+// brace/bracket depth and string state, returning the index just past the
+// value's matching close once it has fully streamed in — or null if it
+// hasn't yet. Used only to decide which top-level analysis sections are
+// safe to reveal progressively; the final result is always re-validated
+// with a strict JSON.parse (parseAnalysis, above) once the stream completes.
+function findBalancedValueEnd(text: string, start: number): number | null {
+  const opener = text[start];
+  if (opener !== "{" && opener !== "[") return null;
+  const closer = opener === "{" ? "}" : "]";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === opener) depth++;
+    else if (ch === closer) {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return null;
+}
+
+const PARTIAL_ANALYSIS_KEYS: (keyof ContractAnalysis)[] = [
+  "contractOverview",
+  "importantDates",
+  "commercialTerms",
+  "keyClauses",
+  "thingsToWatch",
+];
+
+// Best-effort read of whichever top-level analysis sections have fully
+// streamed in so far, so the UI can reveal each Full Review zone as soon as
+// its data is available instead of waiting for the entire response. Only a
+// section whose value is a syntactically complete, balanced JSON value gets
+// parsed and returned — anything still mid-stream is left out entirely
+// rather than guessed at.
+function parsePartialAnalysis(text: string): Partial<ContractAnalysis> {
+  const partial: Partial<ContractAnalysis> = {};
+  for (const key of PARTIAL_ANALYSIS_KEYS) {
+    const markerIndex = text.indexOf(`"${key}"`);
+    if (markerIndex === -1) continue;
+    const colonIndex = text.indexOf(":", markerIndex);
+    if (colonIndex === -1) continue;
+    const valueStart = skipWhitespace(text, colonIndex + 1);
+    const valueEnd = findBalancedValueEnd(text, valueStart);
+    if (valueEnd === null) continue;
+    try {
+      partial[key] = JSON.parse(text.slice(valueStart, valueEnd));
+    } catch {
+      // Malformed despite looking balanced — leave this section out rather
+      // than show something wrong; the final strict parse will catch it.
+    }
+  }
+  return partial;
 }
 
 // ---------- Command palette search ----------
@@ -1102,43 +1175,17 @@ export default function Home() {
     setRawAnalysis("");
     setContractText("");
 
-    try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
+    // True once any section has landed and the view has switched from the
+    // "analyzing" spinner to the results panel — guards the one-time
+    // results-entry setup below from running more than once, and covers the
+    // (rare) case of a response that streamed in too fast to ever show a
+    // partial state, so that setup still runs once at the end.
+    let enteredResults = false;
+    const seenKeys = new Set<keyof ContractAnalysis>();
 
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || "Something went wrong analyzing the PDF.");
-        setAppState("fileSelected");
-        return;
-      }
-
-      const { data: parsed, raw } = parseAnalysis(data.analysis ?? "");
-      setAnalysis(parsed);
-      setRawAnalysis(raw);
-      setContractText(typeof data.contractText === "string" ? data.contractText : "");
-
-      if (parsed) {
-        try {
-          sessionStorage.setItem(
-            CURRENT_ANALYSIS_STORAGE_KEY,
-            JSON.stringify({ fileName: selectedFile.name, analysis: parsed })
-          );
-        } catch {
-          // Session storage can fail (private browsing, quota) — the dashboard's
-          // "currently open" card just won't have anything to show, harmless.
-        }
-      }
-
-      const topHighIndex = parsed?.thingsToWatch?.findIndex((w) => w.severity === "HIGH") ?? -1;
-      setOpenWatchItems(new Set([topHighIndex >= 0 ? topHighIndex : 0]));
-
+    const enterResultsView = () => {
+      if (enteredResults) return;
+      enteredResults = true;
       setViewMode("quickScan");
       setWatchSortHighFirst(true);
       setHighlight(null);
@@ -1148,6 +1195,91 @@ export default function Home() {
       setAskError("");
       setAnalyzedAt(new Date());
       setAppState("results");
+    };
+
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Something went wrong analyzing the PDF.");
+        setAppState("fileSelected");
+        return;
+      }
+
+      if (!res.body) {
+        setError("Couldn't reach the analysis service. Is the dev server running?");
+        setAppState("fileSelected");
+        return;
+      }
+
+      // The response streams the analysis JSON as plain text as Claude
+      // generates it (see app/api/analyze/route.ts), so each Full Review /
+      // Quick Scan field can appear as soon as its section is complete
+      // instead of the whole panel popping in at once at the end.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const delimiterIndex = buffer.indexOf(STREAM_CONTRACT_TEXT_DELIMITER);
+        const analysisTextSoFar = delimiterIndex === -1 ? buffer : buffer.slice(0, delimiterIndex);
+
+        const partial = parsePartialAnalysis(analysisTextSoFar);
+        const newKeys = (Object.keys(partial) as (keyof ContractAnalysis)[]).filter((k) => !seenKeys.has(k));
+        if (newKeys.length === 0) continue;
+        newKeys.forEach((k) => seenKeys.add(k));
+
+        setAnalysis((prev) => ({ ...(prev ?? {}), ...partial }));
+        enterResultsView();
+
+        if (newKeys.includes("thingsToWatch") && partial.thingsToWatch) {
+          const topHighIndex = partial.thingsToWatch.findIndex((w) => w.severity === "HIGH");
+          setOpenWatchItems(new Set([topHighIndex >= 0 ? topHighIndex : 0]));
+        }
+      }
+      buffer += decoder.decode();
+
+      const delimiterIndex = buffer.indexOf(STREAM_CONTRACT_TEXT_DELIMITER);
+      const analysisText = delimiterIndex === -1 ? buffer : buffer.slice(0, delimiterIndex);
+      const finalContractText = delimiterIndex === -1 ? "" : buffer.slice(delimiterIndex + STREAM_CONTRACT_TEXT_DELIMITER.length);
+
+      const { data: parsed, raw } = parseAnalysis(analysisText);
+
+      if (!parsed) {
+        setError("The analysis didn't come back in a format we could read. Please try again.");
+        setAppState("fileSelected");
+        return;
+      }
+
+      setAnalysis(parsed);
+      setRawAnalysis(raw);
+      setContractText(finalContractText);
+
+      try {
+        sessionStorage.setItem(
+          CURRENT_ANALYSIS_STORAGE_KEY,
+          JSON.stringify({ fileName: selectedFile.name, analysis: parsed })
+        );
+      } catch {
+        // Session storage can fail (private browsing, quota) — the dashboard's
+        // "currently open" card just won't have anything to show, harmless.
+      }
+
+      const topHighIndex = parsed.thingsToWatch?.findIndex((w) => w.severity === "HIGH") ?? -1;
+      setOpenWatchItems(new Set([topHighIndex >= 0 ? topHighIndex : 0]));
+
+      enterResultsView();
     } catch {
       setError("Couldn't reach the analysis service. Is the dev server running?");
       setAppState("fileSelected");

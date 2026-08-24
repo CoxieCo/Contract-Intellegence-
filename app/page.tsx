@@ -597,7 +597,12 @@ function FieldCard({
         highlighted ? "border-accent bg-accent/10 ring-1 ring-accent" : "border-hairline bg-background/40"
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
+      {/* flex-wrap: a long citation (real contracts can carry several
+          item/clause numbers) shouldn't be forced onto the same line as the
+          label in cards this narrow — it drops to its own line instead of
+          overlapping the label, the same failure mode the old Important
+          Dates timeline had. */}
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">{label}</span>
         <CiteChip page={field.page} section={field.section} onOpen={onOpenCitation} />
       </div>
@@ -655,7 +660,7 @@ function ClauseCard({
         highlighted ? "border-accent bg-accent/10 ring-1 ring-accent" : "border-hairline bg-background/40"
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <span className="text-sm font-semibold text-foreground">{label}</span>
         <CiteChip page={field.page} section={field.section} onOpen={onOpenCitation} />
       </div>
@@ -755,7 +760,7 @@ function WatchAccordionItem({
         highlighted ? "border-transparent bg-accent/10 ring-1 ring-accent" : severityCardStyle(item.severity)
       }`}
     >
-      <div className="flex w-full items-center justify-between gap-3 py-2.5">
+      <div className="flex w-full flex-wrap items-center justify-between gap-3 py-2.5">
         <button
           type="button"
           onClick={onToggle}

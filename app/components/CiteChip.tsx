@@ -62,9 +62,9 @@ export default function CiteChip(props: CiteChipProps) {
   if (props.actionable === false) {
     return (
       <span
-        className={`inline-flex w-fit items-center whitespace-nowrap px-2 py-1 text-[11px] font-medium text-muted ${props.className ?? ""}`}
+        className={`inline-flex w-fit max-w-[150px] items-center px-2 py-1 text-[11px] font-medium text-muted ${props.className ?? ""}`}
       >
-        {props.label}
+        <span className="min-w-0 truncate">{props.label}</span>
       </span>
     );
   }
@@ -75,7 +75,11 @@ export default function CiteChip(props: CiteChipProps) {
   const label = [hasPage ? `Page ${page}` : null, sectionLabel].filter(Boolean).join(" · ") || "Cite source";
 
   return (
-    <span className="relative inline-flex shrink-0">
+    // No shrink-0 here (unlike most chip/badge patterns elsewhere in the
+    // app) — this one has to be able to shrink below its own max-width in a
+    // narrow container (a 2-column mobile FieldCard grid, in particular),
+    // or it overflows past its own card's edge instead of truncating.
+    <span className="relative inline-flex min-w-0 max-w-full">
       <button
         type="button"
         onClick={(e) => {
@@ -83,11 +87,16 @@ export default function CiteChip(props: CiteChipProps) {
           if (hasPage && onOpen) onOpen(page as number, section ?? null);
           else setShowTooltip((s) => !s);
         }}
-        className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-hairline bg-surface px-2 py-1 text-[11px] font-medium text-muted transition-colors duration-200 hover:border-accent/35 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="inline-flex min-w-0 max-w-[150px] items-center gap-1 rounded border border-hairline bg-surface px-2 py-1 text-[11px] font-medium text-muted transition-colors duration-200 hover:border-accent/35 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <CiteIcon />
-        {label}
-        {arrow && hasPage && <span aria-hidden="true">→</span>}
+        {/* Real contracts can produce long compound citations (multiple item/
+            clause numbers) — this is the same unbounded-nowrap-text failure
+            mode as the old Important Dates timeline, so the label gets its
+            own min-w-0/truncate box instead of forcing the whole chip wider
+            than its max-width and overlapping whatever sits next to it. */}
+        <span className="min-w-0 truncate">{label}</span>
+        {arrow && hasPage && <span aria-hidden="true" className="shrink-0">→</span>}
       </button>
       {showTooltip && !hasPage && (
         <span

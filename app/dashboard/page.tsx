@@ -481,7 +481,7 @@ export default function DashboardPage() {
                               <span className="max-w-[140px] truncate text-right text-xs text-muted">{provenance}</span>
                             )}
                             {citation && (
-                              <span className="whitespace-nowrap rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted">
+                              <span className="max-w-[140px] truncate rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted">
                                 {citation}
                               </span>
                             )}

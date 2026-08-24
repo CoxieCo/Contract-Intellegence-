@@ -79,6 +79,16 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
+/* The pre-scan landing page (app/components/landing) is a deliberately
+   different, lighter theme — while it's mounted, match body's background to
+   it so overscroll/rubber-band bounce at the top or bottom of the page
+   doesn't flash the dark app shell color behind it. Self-clearing: once
+   Landing unmounts (results view), this no longer matches and body reverts
+   to the dark default above. */
+body:has(.ci-landing) {
+  background: #f2f2f3;
+}
+
 /* Subtle reveal on mount — sections/panels fade + lift in, nothing bouncy */
 @keyframes fade-in-up {
   from {

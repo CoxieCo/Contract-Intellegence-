@@ -13,10 +13,9 @@ import {
   zoneTone,
 } from "@/lib/contract-analysis";
 import Spinner from "./components/Spinner";
-import SeeItInAction from "./components/SeeItInAction";
-import Faq from "./components/Faq";
 import CiteChip from "./components/CiteChip";
 import ContractSummaryPrint from "./components/ContractSummaryPrint";
+import Landing from "./components/landing/Landing";
 
 // react-pdf depends on browser-only APIs (Canvas, DOMMatrix, the PDF.js worker) and
 // must never be evaluated during SSR — see react-pdf's Next.js App Router setup notes.
@@ -151,73 +150,6 @@ const PALETTE_SUGGESTIONS = [
   "Show termination clause",
   "Show all dates",
   "Show high-severity items",
-];
-
-// ---------- Marketing content ----------
-// NOTE: coverage list below is descriptive ("what fields we extract"), not a live
-// uptime/testing claim — don't add fake "last checked Xhrs ago" timestamps unless
-// you actually have real monitoring behind them. Same for pricing: adjust the
-// "was $X" figures only if that reflects a real prior price, otherwise drop the
-// strikethrough rather than imply a discount that didn't happen.
-
-const coverageItems: { label: string; note: string; highlight?: string }[] = [
-  {
-    label: "Renewal & notice dates",
-    note: "Start, end, renewal, notice period, notice deadline",
-    highlight: "Never get auto-billed for a SaaS subscription you meant to cancel.",
-  },
-  { label: "Payment & pricing terms", note: "Value, currency, payment terms, escalation" },
-  { label: "Liability & indemnification", note: "Liability, liability cap, indemnity language" },
-  { label: "Termination conditions", note: "Termination, early termination triggers" },
-  { label: "Governing law & compliance", note: "Jurisdiction, data/compliance obligations" },
-  { label: "Conflicting clause detection", note: "Flags when multiple clauses affect one field" },
-];
-
-const pricingTiers = [
-  {
-    name: "Starter",
-    price: "$49",
-    originalPrice: "$79",
-    period: "/month",
-    description: "For small ops and IT & Vendor Management teams getting started",
-    features: [
-      "Up to 25 contracts / month",
-      "Full 5-category extraction",
-      "Things to Watch risk flags",
-      "Email support",
-    ],
-    highlighted: false,
-  },
-  {
-    name: "Team",
-    price: "$149",
-    originalPrice: "$249",
-    period: "/month",
-    description: "For growing operations and IT & Vendor Management teams",
-    features: [
-      "Up to 150 contracts / month",
-      "Full 5-category extraction",
-      "Things to Watch risk flags",
-      "Priority support",
-      "Shared team workspace",
-    ],
-    highlighted: true,
-  },
-  {
-    name: "Enterprise",
-    price: "Custom",
-    originalPrice: null,
-    period: "",
-    description: "For larger contract volumes across ops and IT & Vendor Management",
-    features: [
-      "Unlimited contracts",
-      "Full 5-category extraction",
-      "Things to Watch risk flags",
-      "Dedicated support",
-      "Custom field extraction",
-    ],
-    highlighted: false,
-  },
 ];
 
 // ---------- Helpers ----------
@@ -411,24 +343,6 @@ function findBestMatch(rawQuery: string, items: SearchItem[]): SearchItem | null
 
 // ---------- Icons ----------
 
-function UploadIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 16V4M12 4l-4 4M12 4l4 4" />
-      <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-    </svg>
-  );
-}
-
-function FileIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
-    </svg>
-  );
-}
-
 function ChevronIcon({ open }: { open: boolean }) {
   return (
     <svg
@@ -443,14 +357,6 @@ function ChevronIcon({ open }: { open: boolean }) {
       className={`shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
     >
       <path d="M6 9l6 6 6-6" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 6L9 17l-5-5" />
     </svg>
   );
 }
@@ -1408,7 +1314,29 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      {/* Top bar — sticky with a subtle frosted-glass treatment, the only place we use it */}
+      {/* Pre-scan marketing/landing page — its own light theme, own nav/hero/
+          upload/footer. Swapped out entirely once a contract is analyzed. */}
+      {appState !== "results" && (
+        <Landing
+          appState={appState}
+          selectedFile={selectedFile}
+          isDragging={isDragging}
+          error={error}
+          fileInputRef={fileInputRef}
+          uploadSectionRef={uploadSectionRef}
+          onFileInput={handleFileInput}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onRemoveClick={removeFile}
+          onContinueClick={handleContinue}
+          onScanCta={scrollToUpload}
+          formatFileSize={formatFileSize}
+        />
+      )}
+
+      {/* Results view — unchanged dark theme, own top bar */}
+      {appState === "results" && (
       <header className="sticky top-0 z-40 border-b border-hairline bg-background/70 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
           <div className="flex items-center gap-2.5">
@@ -1421,9 +1349,6 @@ export default function Home() {
           </div>
           <div className="hidden items-center gap-7 text-sm text-muted md:flex">
             <Link href="/dashboard" className="transition-colors duration-200 hover:text-foreground">Dashboard</Link>
-            <a href="#coverage" className="transition-colors duration-200 hover:text-foreground">Coverage</a>
-            <a href="#pricing" className="transition-colors duration-200 hover:text-foreground">Pricing</a>
-            <a href="#faq" className="transition-colors duration-200 hover:text-foreground">FAQ</a>
           </div>
           <button
             type="button"
@@ -1433,161 +1358,16 @@ export default function Home() {
           </button>
         </div>
       </header>
-
-      {/* Big bold hero — only shown before results, so it doesn't compete with the dashboard */}
-      {appState !== "results" && (
-        <section className="border-b border-hairline">
-          <div className="animate-fade-in mx-auto max-w-4xl px-6 py-20 text-center">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-hairline bg-surface px-3.5 py-1.5 text-xs font-medium text-muted">
-              <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-              AI-powered contract intelligence
-            </div>
-
-            <h1 className="mx-auto max-w-3xl text-4xl font-semibold tracking-[-0.035em] text-foreground sm:text-5xl lg:text-6xl">
-              Never miss a renewal,
-              <span className="block text-muted">a deadline, or a risky clause.</span>
-            </h1>
-
-            <p className="mx-auto mt-6 max-w-xl text-lg leading-7 text-muted">
-              Track every vendor contract, SaaS subscription, and renewal deadline
-              in one place — before they auto-bill you.
-            </p>
-
-            <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={scrollToUpload}
-                className="rounded-md bg-accent px-6 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent-strong hover:shadow-glow-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              >
-                Analyze a contract — free
-              </button>
-              <a
-                href="#pricing"
-                className="rounded-md border border-hairline bg-surface px-6 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:border-hairline-strong hover:bg-surface-raised active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              >
-                See pricing
-              </a>
-            </div>
-            <p className="mt-4 text-xs text-muted">No credit card required</p>
-          </div>
-        </section>
       )}
 
+      {appState === "results" && (
       <div className="mx-auto max-w-6xl px-6 py-10">
-        {/* Compact header shown only inside the results view (hero covers this pre-analysis) */}
-        {appState === "results" && (
-          <div className="animate-fade-in mb-6">
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">Contracts</h1>
-            <p className="mt-1 text-sm text-muted">
-              Upload a PDF to extract key terms, dates, and provisions worth reviewing.
-            </p>
-          </div>
-        )}
-
-        {/* Upload panel */}
-        {appState !== "results" && (
-          <div ref={uploadSectionRef} className="animate-fade-in mx-auto w-full max-w-2xl scroll-mt-20">
-            <div className="rounded-md border border-hairline bg-surface p-2 shadow-panel">
-              <div
-                onDrop={handleDrop}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                className={`flex min-h-[220px] flex-col items-center justify-center rounded-md border border-dashed px-6 py-9 transition-colors duration-200 ${
-                  isDragging
-                    ? "border-accent bg-surface-raised"
-                    : "border-hairline bg-background/40 hover:border-hairline-strong hover:bg-surface-raised"
-                }`}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="application/pdf,.pdf"
-                  onChange={handleFileInput}
-                  className="hidden"
-                />
-
-                {appState === "idle" && (
-                  <>
-                    <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-hairline bg-surface-raised text-muted">
-                      <UploadIcon />
-                    </div>
-                    <h2 className="text-[15px] font-semibold text-foreground">
-                      Upload a contract
-                    </h2>
-                    <p className="mt-1.5 max-w-md text-sm leading-6 text-muted">
-                      Drag and drop a PDF here, or select one from your computer.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="mt-5 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent-strong hover:shadow-glow-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                    >
-                      Select PDF
-                    </button>
-                    <p className="mt-3 text-xs text-muted">PDF files only, up to 15MB</p>
-                  </>
-                )}
-
-                {appState === "fileSelected" && selectedFile && (
-                  <>
-                    <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-md bg-accent text-white">
-                      <FileIcon />
-                    </div>
-                    <h2 className="max-w-full truncate px-4 text-[15px] font-semibold text-foreground">
-                      {selectedFile.name}
-                    </h2>
-                    <p className="mt-1.5 text-[13px] tabular-nums text-muted">{formatFileSize(selectedFile.size)}</p>
-
-                    <div className="mt-5 flex gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="rounded-md border border-hairline bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors duration-200 hover:border-hairline-strong hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                      >
-                        Replace PDF
-                      </button>
-                      <button
-                        type="button"
-                        onClick={removeFile}
-                        className="rounded-md border border-hairline bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors duration-200 hover:border-hairline-strong hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                      >
-                        Remove
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleContinue}
-                      className="mt-4 rounded-md bg-accent px-5 py-2 text-sm font-medium text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent-strong hover:shadow-glow-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                    >
-                      Continue
-                    </button>
-                  </>
-                )}
-
-                {appState === "analyzing" && (
-                  <>
-                    <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-hairline bg-surface-raised">
-                      <Spinner />
-                    </div>
-                    <h2 className="text-[15px] font-semibold text-foreground">
-                      Analyzing your contract…
-                    </h2>
-                    <p className="mt-1.5 max-w-md text-sm leading-6 text-muted">
-                      Reading through {selectedFile?.name ?? "your document"}. This usually takes a few seconds.
-                    </p>
-                  </>
-                )}
-              </div>
-
-              {error && (
-                <p role="alert" className="mt-3 text-center text-sm font-medium text-severity-high">
-                  {error}
-                </p>
-              )}
-            </div>
-          </div>
-        )}
+        <div className="animate-fade-in mb-6">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Contracts</h1>
+          <p className="mt-1 text-sm text-muted">
+            Upload a PDF to extract key terms, dates, and provisions worth reviewing.
+          </p>
+        </div>
 
         {/* Results — dashboard panel with mode switcher, tabs + accordion */}
         {appState === "results" && (
@@ -1902,120 +1682,16 @@ export default function Home() {
           </div>
         )}
       </div>
-
-      {/* Extraction coverage — status-bar-style section, only on the marketing view */}
-      {appState !== "results" && (
-        <section id="coverage" className="border-t border-hairline bg-surface/40">
-          <div className="mx-auto max-w-4xl px-6 py-16">
-            <div className="mb-8 text-center">
-              <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">Coverage</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.02em] text-foreground sm:text-3xl">
-                What we extract from every contract
-              </h2>
-            </div>
-
-            <div className="overflow-hidden rounded-md border border-hairline bg-surface shadow-panel">
-              {coverageItems.map((item, i) => (
-                <div
-                  key={item.label}
-                  className={`flex items-start gap-2.5 px-5 py-4 ${
-                    i !== coverageItems.length - 1 ? "border-b border-hairline" : ""
-                  }`}
-                >
-                  <span className="mt-0.5 shrink-0 text-muted">
-                    <CheckIcon />
-                  </span>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{item.label}</p>
-                    <p className="mt-0.5 text-xs text-muted">{item.note}</p>
-                    {item.highlight && (
-                      <p className="mt-1 text-xs text-accent">{item.highlight}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
       )}
 
-      {/* See it in action — animated replay of real result screens, only on the marketing view */}
-      {appState !== "results" && <SeeItInAction />}
-
-      {/* Pricing */}
-      {appState !== "results" && (
-        <section id="pricing" className="border-t border-hairline">
-          <div className="mx-auto max-w-5xl px-6 py-16">
-            <div className="mb-10 text-center">
-              <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">Pricing</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.02em] text-foreground sm:text-3xl">
-                Simple, transparent pricing
-              </h2>
-            </div>
-
-            <div className="grid gap-6 md:grid-cols-3">
-              {pricingTiers.map((tier) => (
-                <div
-                  key={tier.name}
-                  className={`relative flex flex-col rounded-md border bg-surface p-6 transition-all duration-200 hover:-translate-y-0.5 ${
-                    tier.highlighted
-                      ? "border-accent shadow-glow-accent"
-                      : "border-hairline shadow-panel hover:shadow-panel-hover"
-                  }`}
-                >
-                  {tier.highlighted && (
-                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-accent px-3 py-1 text-[11px] font-semibold text-white">
-                      Most popular
-                    </span>
-                  )}
-
-                  <h3 className="text-sm font-semibold text-foreground">{tier.name}</h3>
-                  <p className="mt-1 text-sm text-muted">{tier.description}</p>
-
-                  <div className="mt-5 flex items-baseline gap-2">
-                    <span className="text-3xl font-semibold tracking-[-0.02em] tabular-nums text-foreground">{tier.price}</span>
-                    <span className="text-sm text-muted">{tier.period}</span>
-                  </div>
-                  {tier.originalPrice && (
-                    <p className="mt-1 text-xs tabular-nums text-muted line-through">{tier.originalPrice}{tier.period}</p>
-                  )}
-
-                  <ul className="mt-6 flex-1 space-y-2.5">
-                    {tier.features.map((feature) => (
-                      <li key={feature} className="flex items-start gap-2 text-sm text-muted">
-                        <span className="mt-0.5 text-accent"><CheckIcon /></span>
-                        {feature}
-                      </li>
-                    ))}
-                  </ul>
-
-                  <button
-                    type="button"
-                    onClick={scrollToUpload}
-                    className={`mt-6 rounded-md px-4 py-2.5 text-sm font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
-                      tier.highlighted
-                        ? "bg-accent text-white hover:-translate-y-0.5 hover:bg-accent-strong hover:shadow-glow-accent"
-                        : "border border-hairline bg-surface text-foreground hover:border-hairline-strong hover:bg-surface-raised"
-                    }`}
-                  >
-                    {tier.name === "Enterprise" ? "Contact sales" : "Get started"}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* FAQ — only on the marketing view */}
-      {appState !== "results" && <Faq />}
-
+      {appState === "results" && (
       <footer className="border-t border-hairline">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-6 py-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
           <span>Contract Intelligence</span>
           <span>AI-powered contract analysis</span>
         </div>
       </footer>
+      )}
 
       {/* Persistent AI affordance — quiet, corner-anchored, present on every screen */}
       <button

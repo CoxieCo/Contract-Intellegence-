@@ -1,21 +1,17 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
-import { ChangeEvent, DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react";
 import {
   CURRENT_ANALYSIS_STORAGE_KEY,
   VIEW_REQUEST_STORAGE_KEY,
   STREAM_CONTRACT_TEXT_DELIMITER,
-  severityStyles,
-  severityCardStyle,
-  severityDotClass,
-  zoneTone,
 } from "@/lib/contract-analysis";
 import Spinner from "./components/Spinner";
 import CiteChip from "./components/CiteChip";
 import ContractSummaryPrint from "./components/ContractSummaryPrint";
 import Landing from "./components/landing/Landing";
+import ResultsView, { ResultsViewHandle } from "./components/results/ResultsView";
 
 // react-pdf depends on browser-only APIs (Canvas, DOMMatrix, the PDF.js worker) and
 // must never be evaluated during SSR — see react-pdf's Next.js App Router setup notes.
@@ -88,7 +84,6 @@ interface ContractAnalysis {
 
 type AppState = "idle" | "fileSelected" | "analyzing" | "results";
 type TabKey = "overview" | "dates" | "terms" | "clauses" | "watch";
-type ViewMode = "quickScan" | "fullReview";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 
@@ -135,17 +130,6 @@ const clausesLabels: Record<keyof KeyClauses, string> = {
   slaCommitments: "SLA commitments",
 };
 
-const MODE_OPTIONS: { key: ViewMode; label: string }[] = [
-  { key: "quickScan", label: "Quick Scan" },
-  { key: "fullReview", label: "Full Review" },
-];
-
-const severityRank: Record<ThingToWatch["severity"], number> = {
-  HIGH: 0,
-  MEDIUM: 1,
-  LOW: 2,
-};
-
 const PALETTE_SUGGESTIONS = [
   "Show termination clause",
   "Show all dates",
@@ -153,16 +137,6 @@ const PALETTE_SUGGESTIONS = [
 ];
 
 // ---------- Helpers ----------
-
-// Purely cosmetic reframing of an already-extracted field — no new data, just
-// a small "Vendor contract" tag when the AI's own contractType classification
-// reads as a SaaS/software agreement, for IT/vendor-management readers scanning
-// a mixed batch of contracts.
-const VENDOR_CONTRACT_TYPE_PATTERN = /saas|software|subscription|vendor/i;
-
-function isVendorContractType(contractType: string): boolean {
-  return VENDOR_CONTRACT_TYPE_PATTERN.test(contractType);
-}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -343,24 +317,6 @@ function findBestMatch(rawQuery: string, items: SearchItem[]): SearchItem | null
 
 // ---------- Icons ----------
 
-function ChevronIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-    >
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  );
-}
-
 function SearchIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted">
@@ -370,346 +326,13 @@ function SearchIcon() {
   );
 }
 
-// ---------- Presentational pieces ----------
-
-// Clause values can run to multi-sentence prose (termination conditions,
-// liability language). Below this length they render in full as before;
-// above it, they collapse to a preview with the same expand interaction
-// used for Things to Watch.
-const CLAUSE_PREVIEW_LENGTH = 115;
-
-function truncateAtWord(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  const clipped = text.slice(0, maxLength);
-  const lastSpace = clipped.lastIndexOf(" ");
-  return (lastSpace > maxLength * 0.6 ? clipped.slice(0, lastSpace) : clipped).trimEnd();
-}
-
-function FieldRow({
-  label,
-  field,
-  mono,
-  primary,
-  expandable,
-  highlighted,
-  forwardedRef,
-  onOpenCitation,
-}: {
-  label: string;
-  field: SourcedValue;
-  mono?: boolean;
-  primary?: boolean;
-  expandable?: boolean;
-  highlighted?: boolean;
-  forwardedRef?: (el: HTMLDivElement | null) => void;
-  onOpenCitation?: (page: number, section: string | null) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const notFound = field.value === "Not found";
-  const isLong = Boolean(expandable) && !notFound && field.value.length > CLAUSE_PREVIEW_LENGTH;
-  const preview = isLong ? truncateAtWord(field.value, CLAUSE_PREVIEW_LENGTH) : field.value;
-  const remainder = isLong ? field.value.slice(preview.length) : "";
-
-  return (
-    <div
-      ref={forwardedRef}
-      className={`flex flex-col gap-1 rounded-md border-b border-hairline py-2.5 first:pt-0 last:border-0 last:pb-0 transition-colors duration-300 sm:flex-row sm:items-start sm:justify-between sm:gap-6 ${
-        highlighted ? "border-transparent bg-accent/10 px-2 ring-1 ring-accent" : ""
-      }`}
-    >
-      <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted sm:w-48 sm:shrink-0">
-        {label}
-      </span>
-      <span className="flex flex-1 flex-col items-end gap-1">
-        <span className="flex w-full items-start justify-end gap-2">
-          <span
-            className={`tabular-nums sm:text-right ${mono ? "font-mono" : ""} ${
-              primary && !notFound ? "text-[18px] leading-6 font-semibold tracking-[-0.01em]" : "text-sm leading-5"
-            } ${notFound ? "italic text-muted" : "text-foreground"}`}
-          >
-            {preview}
-            {isLong && !expanded ? "…" : ""}
-          </span>
-          <CiteChip page={field.page} section={field.section} arrow onOpen={onOpenCitation} />
-        </span>
-        {isLong && (
-          <div className={`accordion-panel w-full ${expanded ? "is-open" : ""}`}>
-            <div>
-              <p
-                className={`pt-0.5 text-sm leading-5 text-foreground sm:text-right ${mono ? "font-mono" : ""}`}
-              >
-                {remainder}
-              </p>
-            </div>
-          </div>
-        )}
-        {isLong && (
-          <button
-            type="button"
-            onClick={() => setExpanded((e) => !e)}
-            className="flex items-center gap-1 text-xs font-medium text-accent transition-colors duration-200 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            <ChevronIcon open={expanded} />
-            {expanded ? "Show less" : "Read more"}
-          </button>
-        )}
-      </span>
-    </div>
-  );
-}
-
-// Zone 2/3 card — micro-label + citation badge up top, the value reads as
-// the dominant "primary" text underneath (numbers people scan for first).
-// Real contracts often put compound/conditional language in these fields
-// too (a percentage escalation clause, a multi-part renewal term), not just
-// a plain date or dollar figure — so it reuses the same truncate-then-expand
-// interaction as Key Clauses' ClauseCard (same CLAUSE_PREVIEW_LENGTH cutoff,
-// same accordion-panel reveal, same "Read more" affordance) instead of
-// letting a long value either overflow the card or invent a second pattern.
-function FieldCard({
-  label,
-  field,
-  mono,
-  primary,
-  highlighted,
-  forwardedRef,
-  onOpenCitation,
-}: {
-  label: string;
-  field: SourcedValue;
-  mono?: boolean;
-  primary?: boolean;
-  highlighted?: boolean;
-  forwardedRef?: (el: HTMLDivElement | null) => void;
-  onOpenCitation?: (page: number, section: string | null) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const notFound = field.value === "Not found";
-  const isLong = !notFound && field.value.length > CLAUSE_PREVIEW_LENGTH;
-  const preview = isLong ? truncateAtWord(field.value, CLAUSE_PREVIEW_LENGTH) : field.value;
-  const remainder = isLong ? field.value.slice(preview.length) : "";
-  const valueTextClass = `tabular-nums ${mono ? "font-mono" : ""} ${
-    notFound
-      ? "text-sm italic text-muted"
-      : primary
-        ? "text-[20px] leading-6 font-semibold tracking-[-0.01em] text-foreground"
-        : "text-base font-semibold text-foreground"
-  }`;
-
-  return (
-    <div
-      ref={forwardedRef}
-      className={`rounded-md border p-3 transition-colors duration-300 ${
-        highlighted ? "border-accent bg-accent/10 ring-1 ring-accent" : "border-hairline bg-background/40"
-      }`}
-    >
-      {/* flex-wrap: a long citation (real contracts can carry several
-          item/clause numbers) shouldn't be forced onto the same line as the
-          label in cards this narrow — it drops to its own line instead of
-          overlapping the label, the same failure mode the old Important
-          Dates timeline had. */}
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">{label}</span>
-        <CiteChip page={field.page} section={field.section} onOpen={onOpenCitation} />
-      </div>
-      <p className={`mt-2 ${valueTextClass}`}>
-        {preview}
-        {isLong && !expanded ? "…" : ""}
-      </p>
-      {isLong && (
-        <div className={`accordion-panel ${expanded ? "is-open" : ""}`}>
-          <div>
-            <p className={`pt-0.5 ${valueTextClass}`}>{remainder}</p>
-          </div>
-        </div>
-      )}
-      {isLong && (
-        <button
-          type="button"
-          onClick={() => setExpanded((e) => !e)}
-          className="mt-1.5 flex items-center gap-1 text-xs font-medium text-accent transition-colors duration-200 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          <ChevronIcon open={expanded} />
-          {expanded ? "Show less" : "Read more"}
-        </button>
-      )}
-    </div>
-  );
-}
-
-// Zone 4 card — clause text reads as an annotation (bold title + prose),
-// not extracted data, so it keeps the truncate/expand behavior built for
-// long clause text instead of FieldCard's big-number treatment.
-function ClauseCard({
-  label,
-  field,
-  highlighted,
-  forwardedRef,
-  onOpenCitation,
-}: {
-  label: string;
-  field: SourcedValue;
-  highlighted?: boolean;
-  forwardedRef?: (el: HTMLDivElement | null) => void;
-  onOpenCitation?: (page: number, section: string | null) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const notFound = field.value === "Not found";
-  const isLong = !notFound && field.value.length > CLAUSE_PREVIEW_LENGTH;
-  const preview = isLong ? truncateAtWord(field.value, CLAUSE_PREVIEW_LENGTH) : field.value;
-  const remainder = isLong ? field.value.slice(preview.length) : "";
-
-  return (
-    <div
-      ref={forwardedRef}
-      className={`rounded-md border p-3 transition-colors duration-300 ${
-        highlighted ? "border-accent bg-accent/10 ring-1 ring-accent" : "border-hairline bg-background/40"
-      }`}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <span className="text-sm font-semibold text-foreground">{label}</span>
-        <CiteChip page={field.page} section={field.section} onOpen={onOpenCitation} />
-      </div>
-      <p className={`mt-1.5 text-sm leading-5 ${notFound ? "italic text-muted" : "text-muted"}`}>
-        {preview}
-        {isLong && !expanded ? "…" : ""}
-      </p>
-      {isLong && (
-        <div className={`accordion-panel ${expanded ? "is-open" : ""}`}>
-          <div>
-            <p className="pt-0.5 text-sm leading-5 text-muted">{remainder}</p>
-          </div>
-        </div>
-      )}
-      {isLong && (
-        <button
-          type="button"
-          onClick={() => setExpanded((e) => !e)}
-          className="mt-1 flex items-center gap-1 text-xs font-medium text-accent transition-colors duration-200 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          <ChevronIcon open={expanded} />
-          {expanded ? "Show less" : "Read more"}
-        </button>
-      )}
-    </div>
-  );
-}
-
-// Zone 1's identity fields are bespoke layout (heading/subtitle/badge), not
-// generic label-value rows, but still need the same scroll-to-and-flash
-// highlight the palette already uses everywhere else. Branches on a static
-// tag per case (rather than a dynamic `<Tag>`) so each ref attaches to a
-// literal host element — the pattern the ref-safety lint rule expects.
-function HighlightField({
-  as,
-  active,
-  className,
-  forwardedRef,
-  children,
-}: {
-  as: "h2" | "p" | "span";
-  active?: boolean;
-  className?: string;
-  forwardedRef?: (el: HTMLElement | null) => void;
-  children: ReactNode;
-}) {
-  const fullClassName = `transition-colors duration-300 ${className ?? ""} ${
-    active ? "-mx-1 rounded-md bg-accent/10 px-1 ring-1 ring-accent" : ""
-  }`;
-
-  if (as === "h2") {
-    return (
-      <h2 ref={forwardedRef} className={fullClassName}>
-        {children}
-      </h2>
-    );
-  }
-  if (as === "p") {
-    return (
-      <p ref={forwardedRef} className={fullClassName}>
-        {children}
-      </p>
-    );
-  }
-  return (
-    <span ref={forwardedRef} className={fullClassName}>
-      {children}
-    </span>
-  );
-}
-
-function WatchAccordionItem({
-  item,
-  open,
-  onToggle,
-  onWhyRisky,
-  highlighted,
-  forwardedRef,
-  onOpenCitation,
-  arrow,
-}: {
-  item: ThingToWatch;
-  open: boolean;
-  onToggle: () => void;
-  onWhyRisky: () => void;
-  highlighted?: boolean;
-  forwardedRef?: (el: HTMLDivElement | null) => void;
-  onOpenCitation?: (page: number, section: string | null) => void;
-  // Quick Scan's "Top risk" instance passes this; Full Review's Zone 5 list
-  // doesn't — see the same note on CiteChip's `arrow` prop.
-  arrow?: boolean;
-}) {
-  return (
-    <div
-      ref={forwardedRef}
-      className={`rounded-md border px-3 transition-colors duration-300 ${
-        highlighted ? "border-transparent bg-accent/10 ring-1 ring-accent" : severityCardStyle(item.severity)
-      }`}
-    >
-      <div className="flex w-full flex-wrap items-center justify-between gap-3 py-2.5">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex flex-1 items-center gap-2.5 text-left text-muted transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        >
-          <ChevronIcon open={open} />
-          <span className={`inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 text-[11px] font-medium tracking-[0.04em] ${severityStyles(item.severity)}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${severityDotClass(item.severity)}`} />
-            {item.severity}
-          </span>
-          <span className="text-sm font-medium text-foreground">{item.title}</span>
-        </button>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onWhyRisky();
-            }}
-            className="whitespace-nowrap rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted transition-colors duration-200 hover:border-hairline-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            Why is this risky?
-          </button>
-          <CiteChip page={item.page} section={item.section} arrow={arrow} onOpen={onOpenCitation} />
-        </div>
-      </div>
-      <div className={`accordion-panel ${open ? "is-open" : ""}`}>
-        <div>
-          <p className="pb-3 pl-7 text-sm leading-5 text-muted">{item.explanation}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ---------- Main page ----------
 
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadSectionRef = useRef<HTMLDivElement>(null);
   const paletteInputRef = useRef<HTMLInputElement>(null);
-  const fieldRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const watchRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const resultsViewRef = useRef<ResultsViewHandle>(null);
 
   const [appState, setAppState] = useState<AppState>("idle");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -719,7 +342,6 @@ export default function Home() {
   const [analysis, setAnalysis] = useState<ContractAnalysis | null>(null);
   const [rawAnalysis, setRawAnalysis] = useState("");
   const [contractText, setContractText] = useState("");
-  const [copied, setCopied] = useState(false);
 
   // Set only when the results view was restored from the dashboard (a past
   // analysis, or the current one revisited) rather than a live upload — there
@@ -740,17 +362,9 @@ export default function Home() {
   const [askLoading, setAskLoading] = useState(false);
   const [askError, setAskError] = useState("");
 
-  const [openWatchItems, setOpenWatchItems] = useState<Set<number>>(new Set([0]));
-
-  const [viewMode, setViewMode] = useState<ViewMode>("quickScan");
-  const [watchSortHighFirst, setWatchSortHighFirst] = useState(true);
-
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteRendered, setPaletteRendered] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
-
-  const [highlight, setHighlight] = useState<{ tab: TabKey; key: string } | null>(null);
-  const [highlightWatchIndex, setHighlightWatchIndex] = useState<number | null>(null);
 
   const [viewerCitation, setViewerCitation] = useState<{ page: number; section: string | null } | null>(null);
 
@@ -760,31 +374,6 @@ export default function Home() {
 
   const scrollToUpload = () => {
     uploadSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
-  const toggleWatchItem = (index: number) => {
-    setOpenWatchItems((prev) => {
-      const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
-  };
-
-  const handleWhyRisky = (index: number) => {
-    setOpenWatchItems((prev) => new Set(prev).add(index));
-    setHighlightWatchIndex(index);
-  };
-
-  const registerFieldRef = (tab: TabKey, key: string) => (el: HTMLElement | null) => {
-    const mapKey = `${tab}-${key}`;
-    if (el) fieldRefs.current.set(mapKey, el);
-    else fieldRefs.current.delete(mapKey);
-  };
-
-  const registerWatchRef = (index: number) => (el: HTMLDivElement | null) => {
-    if (el) watchRefs.current.set(index, el);
-    else watchRefs.current.delete(index);
   };
 
   // ----- Restore a past analysis requested from the dashboard -----
@@ -820,12 +409,6 @@ export default function Home() {
       setRawAnalysis(JSON.stringify(hydrate.analysis, null, 2));
       setArchivedFileName(hydrate.fileName);
       setContractText("");
-
-      const topHighIndex = hydrate.analysis.thingsToWatch?.findIndex((w) => w.severity === "HIGH") ?? -1;
-      setOpenWatchItems(new Set([topHighIndex >= 0 ? topHighIndex : 0]));
-
-      setViewMode("quickScan");
-      setWatchSortHighFirst(true);
       setAnalyzedAt(new Date());
       setAppState("results");
 
@@ -870,41 +453,13 @@ export default function Home() {
     return () => clearTimeout(timeout);
   }, [paletteOpen]);
 
-  // ----- Highlight scroll + fade -----
-
-  useEffect(() => {
-    if (!highlight) return;
-    const el = fieldRefs.current.get(`${highlight.tab}-${highlight.key}`);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
-    const timeout = setTimeout(() => setHighlight(null), 2200);
-    return () => clearTimeout(timeout);
-  }, [highlight]);
-
-  useEffect(() => {
-    if (highlightWatchIndex === null) return;
-    const el = watchRefs.current.get(highlightWatchIndex);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
-    const timeout = setTimeout(() => setHighlightWatchIndex(null), 2200);
-    return () => clearTimeout(timeout);
-  }, [highlightWatchIndex]);
-
   // ----- Command palette -----
 
-  // All 5 zones are always mounted in Full Review now, so "jumping" no
-  // longer means switching tabs — just leaving Quick Scan (if active) and
-  // scrolling/highlighting the target field, which was already how the
-  // highlight-and-scroll effect below worked.
-  const jumpToField = (
-    tab: TabKey,
-    opts?: { highlightKey?: string; watchIndex?: number; sortWatchHighFirst?: boolean }
-  ) => {
-    setViewMode("fullReview");
-    setHighlight(opts?.highlightKey ? { tab, key: opts.highlightKey } : null);
-    setHighlightWatchIndex(opts?.watchIndex ?? null);
-    if (opts?.watchIndex !== undefined) {
-      setOpenWatchItems((prev) => new Set(prev).add(opts.watchIndex!));
-    }
-    if (opts?.sortWatchHighFirst) setWatchSortHighFirst(true);
+  // Jumping to a field opens its section, scrolls to it and flashes a
+  // highlight — all owned by ResultsView itself (it remounts fresh each
+  // time a results view is entered, so there's no state to reset here).
+  const jumpToField = (tab: TabKey, opts?: { highlightKey?: string; watchIndex?: number }) => {
+    resultsViewRef.current?.jumpTo(tab, { fieldKey: opts?.highlightKey, watchIndex: opts?.watchIndex });
     setPaletteOpen(false);
     setPaletteQuery("");
   };
@@ -964,7 +519,7 @@ export default function Home() {
     }
 
     if (query.includes("severity") || query.includes("risky") || query.includes("risk")) {
-      jumpToField("watch", { sortWatchHighFirst: true });
+      jumpToField("watch");
       return;
     }
     if (query.includes("date")) {
@@ -1059,10 +614,6 @@ export default function Home() {
     setRawAnalysis("");
     setContractText("");
     setAppState("idle");
-    setViewMode("quickScan");
-    setWatchSortHighFirst(true);
-    setHighlight(null);
-    setHighlightWatchIndex(null);
     setViewerCitation(null);
     setAskHistory([]);
     setAskError("");
@@ -1097,10 +648,6 @@ export default function Home() {
     const enterResultsView = () => {
       if (enteredResults) return;
       enteredResults = true;
-      setViewMode("quickScan");
-      setWatchSortHighFirst(true);
-      setHighlight(null);
-      setHighlightWatchIndex(null);
       setViewerCitation(null);
       setAskHistory([]);
       setAskError("");
@@ -1153,11 +700,6 @@ export default function Home() {
 
         setAnalysis((prev) => ({ ...(prev ?? {}), ...partial }));
         enterResultsView();
-
-        if (newKeys.includes("thingsToWatch") && partial.thingsToWatch) {
-          const topHighIndex = partial.thingsToWatch.findIndex((w) => w.severity === "HIGH");
-          setOpenWatchItems(new Set([topHighIndex >= 0 ? topHighIndex : 0]));
-        }
       }
       buffer += decoder.decode();
 
@@ -1187,36 +729,10 @@ export default function Home() {
         // "currently open" card just won't have anything to show, harmless.
       }
 
-      const topHighIndex = parsed.thingsToWatch?.findIndex((w) => w.severity === "HIGH") ?? -1;
-      setOpenWatchItems(new Set([topHighIndex >= 0 ? topHighIndex : 0]));
-
       enterResultsView();
     } catch {
       setError("Couldn't reach the analysis service. Is the dev server running?");
       setAppState("fileSelected");
-    }
-  };
-
-  const handleReset = () => {
-    setSelectedFile(null);
-    setAnalysis(null);
-    setRawAnalysis("");
-    setContractText("");
-    setError("");
-    setAppState("idle");
-    setViewMode("quickScan");
-    setWatchSortHighFirst(true);
-    setHighlight(null);
-    setHighlightWatchIndex(null);
-    setViewerCitation(null);
-    setAskHistory([]);
-    setAskError("");
-    sessionStorage.removeItem(CURRENT_ANALYSIS_STORAGE_KEY);
-    setArchivedFileName(null);
-    setAnalyzedAt(null);
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
     }
   };
 
@@ -1234,18 +750,6 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
-  const handleCopy = async () => {
-    if (!rawAnalysis) return;
-
-    try {
-      await navigator.clipboard.writeText(rawAnalysis);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setError("Couldn't copy to clipboard.");
-    }
-  };
-
   // No PDF library involved — #print-summary-root (see globals.css's
   // @media print block) is already in the DOM, just hidden on screen, so
   // this only has to trigger the browser's own print dialog. "Save as PDF"
@@ -1253,64 +757,6 @@ export default function Home() {
   const handleExportPdf = () => {
     window.print();
   };
-
-  const watchCount = analysis?.thingsToWatch?.length ?? 0;
-  const highCount = analysis?.thingsToWatch?.filter((w) => w.severity === "HIGH").length ?? 0;
-  const mediumCount = analysis?.thingsToWatch?.filter((w) => w.severity === "MEDIUM").length ?? 0;
-  const lowCount = analysis?.thingsToWatch?.filter((w) => w.severity === "LOW").length ?? 0;
-  const watchTone = zoneTone(analysis?.thingsToWatch ?? []);
-
-  const displayedWatchItems = (analysis?.thingsToWatch ?? []).map((item, i) => ({ item, i }));
-  if (watchSortHighFirst) {
-    displayedWatchItems.sort((a, b) => severityRank[a.item.severity] - severityRank[b.item.severity]);
-  }
-
-  // Quick Scan — highest-priority fields only, "Not found" omitted
-  const quickScanFields: { tab: TabKey; key: string; label: string; field: SourcedValue; mono?: boolean }[] = [];
-  if (analysis?.importantDates) {
-    const d = analysis.importantDates;
-    if (d.renewalDate.value !== "Not found")
-      quickScanFields.push({ tab: "dates", key: "renewalDate", label: datesLabels.renewalDate, field: d.renewalDate, mono: true });
-    if (d.noticePeriod.value !== "Not found")
-      quickScanFields.push({ tab: "dates", key: "noticePeriod", label: datesLabels.noticePeriod, field: d.noticePeriod, mono: true });
-    if (d.autoRenewal.value !== "Not found")
-      quickScanFields.push({ tab: "dates", key: "autoRenewal", label: datesLabels.autoRenewal, field: d.autoRenewal, mono: true });
-  }
-  if (analysis?.commercialTerms && analysis.commercialTerms.priceEscalation.value !== "Not found") {
-    quickScanFields.push({
-      tab: "terms",
-      key: "priceEscalation",
-      label: termsLabels.priceEscalation,
-      field: analysis.commercialTerms.priceEscalation,
-      mono: true,
-    });
-  }
-  if (analysis?.keyClauses) {
-    const c = analysis.keyClauses;
-    if (c.termination.value !== "Not found")
-      quickScanFields.push({ tab: "clauses", key: "termination", label: clausesLabels.termination, field: c.termination });
-    if (c.liabilityCap.value !== "Not found")
-      quickScanFields.push({ tab: "clauses", key: "liabilityCap", label: clausesLabels.liabilityCap, field: c.liabilityCap });
-  }
-
-  const topHighIndex = analysis?.thingsToWatch?.findIndex((w) => w.severity === "HIGH") ?? -1;
-  const topHighItem = topHighIndex >= 0 ? analysis!.thingsToWatch![topHighIndex] : null;
-
-  const isHighlighted = (tab: TabKey, key: string) => highlight?.tab === tab && highlight.key === key;
-
-  // Zone 1's fields are individual JSX (not a .map() over a field list, since
-  // each one has distinct typography), so each ref callback is precomputed
-  // here via .reduce() into a lookup rather than called inline in the JSX
-  // below — inline calls to registerFieldRef() outside of a .map() trip the
-  // ref-safety lint rule, even though the callback itself only ever runs
-  // outside render, as a genuine ref attach/detach.
-  const overviewFieldRefs = (["contractName", "purpose", "status", "contractType", "parties"] as const).reduce(
-    (acc, key) => {
-      acc[key] = registerFieldRef("overview", key);
-      return acc;
-    },
-    {} as Record<string, (el: HTMLElement | null) => void>
-  );
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -1335,363 +781,20 @@ export default function Home() {
         />
       )}
 
-      {/* Results view — unchanged dark theme, own top bar */}
-      {appState === "results" && (
-      <header className="sticky top-0 z-40 border-b border-hairline bg-background/70 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-[11px] font-semibold text-white">
-              CI
-            </div>
-            <span className="text-sm font-semibold tracking-tight text-foreground">
-              Contract Intelligence
-            </span>
-          </div>
-          <div className="hidden items-center gap-7 text-sm text-muted md:flex">
-            <Link href="/dashboard" className="transition-colors duration-200 hover:text-foreground">Dashboard</Link>
-          </div>
-          <button
-            type="button"
-            className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-xs font-medium text-foreground transition-colors duration-200 hover:border-hairline-strong hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          >
-            Sign in
-          </button>
-        </div>
-      </header>
+      {/* Results view — same light "Industry" theme as Landing, imported from
+          Results.dc.html. Owns its own nav/sidebar; no dark chrome around it. */}
+      {appState === "results" && analysis && (
+        <ResultsView
+          ref={resultsViewRef}
+          analysis={analysis}
+          fileName={selectedFile ? selectedFile.name : (archivedFileName ?? "Contract")}
+          analyzedAt={analyzedAt}
+          onOpenCitation={openCitation}
+          onExportJson={handleDownload}
+          onExportPdf={handleExportPdf}
+        />
       )}
 
-      {appState === "results" && (
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <div className="animate-fade-in mb-6">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Contracts</h1>
-          <p className="mt-1 text-sm text-muted">
-            Upload a PDF to extract key terms, dates, and provisions worth reviewing.
-          </p>
-        </div>
-
-        {/* Results — dashboard panel with mode switcher, tabs + accordion */}
-        {appState === "results" && (
-          <div className="animate-fade-in mx-auto w-full max-w-4xl">
-            <div className="rounded-md border border-hairline bg-surface shadow-panel">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-5 py-3.5">
-                <div>
-                  <h2 className="text-[15px] font-semibold text-foreground">Analysis results</h2>
-                  {(selectedFile || archivedFileName) && (
-                    <p className="mt-0.5 text-[13px] text-muted">
-                      {selectedFile ? selectedFile.name : archivedFileName}
-                      {watchCount > 0 && (
-                        <span className="ml-2 tabular-nums text-muted">
-                          · {watchCount} item{watchCount !== 1 ? "s" : ""} to review
-                          {highCount > 0 ? ` (${highCount} high)` : ""}
-                        </span>
-                      )}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-xs font-medium text-foreground transition-colors duration-200 hover:border-hairline-strong hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                  >
-                    {copied ? "Copied" : "Copy"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDownload}
-                    className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-xs font-medium text-foreground transition-colors duration-200 hover:border-hairline-strong hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                  >
-                    Download
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleExportPdf}
-                    className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-xs font-medium text-foreground transition-colors duration-200 hover:border-hairline-strong hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                  >
-                    Export PDF
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleReset}
-                    className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors duration-200 hover:bg-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                  >
-                    New analysis
-                  </button>
-                </div>
-              </div>
-
-              {analysis ? (
-                <>
-                  {/* Mode switcher */}
-                  <div className="flex flex-wrap items-center gap-1 border-b border-hairline px-5 py-2.5">
-                    {MODE_OPTIONS.map((mode) => {
-                      const active = viewMode === mode.key;
-                      return (
-                        <button
-                          key={mode.key}
-                          type="button"
-                          onClick={() => setViewMode(mode.key)}
-                          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
-                            active
-                              ? "bg-accent text-white"
-                              : "text-muted hover:bg-surface-raised hover:text-foreground"
-                          }`}
-                        >
-                          {mode.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {viewMode === "quickScan" && (
-                    <div className="animate-fade-in px-5 py-4">
-                      <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.04em] text-muted">Key facts</p>
-                      <div>
-                        {quickScanFields.length > 0 ? (
-                          quickScanFields.map((f) => (
-                            <FieldRow
-                              key={`${f.tab}-${f.key}`}
-                              label={f.label}
-                              field={f.field}
-                              mono={f.mono}
-                              onOpenCitation={openCitation}
-                            />
-                          ))
-                        ) : (
-                          <p className="py-2.5 text-sm text-muted">No key facts found for this contract.</p>
-                        )}
-                      </div>
-
-                      {topHighItem && (
-                        <div className="mt-5 border-t border-hairline pt-4">
-                          <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.04em] text-muted">Top risk</p>
-                          <WatchAccordionItem
-                            item={topHighItem}
-                            open={openWatchItems.has(topHighIndex)}
-                            onToggle={() => toggleWatchItem(topHighIndex)}
-                            onWhyRisky={() => handleWhyRisky(topHighIndex)}
-                            onOpenCitation={openCitation}
-                            arrow
-                          />
-                        </div>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => setViewMode("fullReview")}
-                        className="mt-4 text-xs font-medium text-accent transition-colors duration-200 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                      >
-                        View full analysis →
-                      </button>
-                    </div>
-                  )}
-
-                  {viewMode === "fullReview" && (
-                    <div className="animate-fade-in space-y-5 px-5 py-5">
-                      {/* Zone 1 — Contract identity */}
-                      {analysis.contractOverview && (
-                        <section className="rounded-md border border-hairline bg-background/30 p-5">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                            Contract identity
-                          </p>
-                          <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <HighlightField
-                                as="h2"
-                                className="text-2xl font-semibold tracking-[-0.02em] text-foreground"
-                                active={isHighlighted("overview", "contractName")}
-                                forwardedRef={overviewFieldRefs.contractName}
-                              >
-                                {analysis.contractOverview.contractName.value}
-                              </HighlightField>
-                              {analysis.contractOverview.purpose.value !== "Not found" && (
-                                <HighlightField
-                                  as="p"
-                                  className="mt-1.5 max-w-xl text-sm leading-6 text-muted"
-                                  active={isHighlighted("overview", "purpose")}
-                                  forwardedRef={overviewFieldRefs.purpose}
-                                >
-                                  {analysis.contractOverview.purpose.value}
-                                </HighlightField>
-                              )}
-                            </div>
-                            <div className="shrink-0 text-right">
-                              <HighlightField
-                                as="span"
-                                className="inline-flex items-center gap-1.5 rounded-full border border-hairline-strong bg-surface-raised px-2.5 py-1 text-xs font-medium text-foreground"
-                                active={isHighlighted("overview", "status")}
-                                forwardedRef={overviewFieldRefs.status}
-                              >
-                                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-                                {analysis.contractOverview.status.value}
-                              </HighlightField>
-                              {analysis.contractOverview.contractType.value !== "Not found" && (
-                                <HighlightField
-                                  as="p"
-                                  className="mt-2 text-xs text-muted"
-                                  active={isHighlighted("overview", "contractType")}
-                                  forwardedRef={overviewFieldRefs.contractType}
-                                >
-                                  {analysis.contractOverview.contractType.value}
-                                </HighlightField>
-                              )}
-                              {isVendorContractType(analysis.contractOverview.contractType.value) && (
-                                <span className="mt-1.5 inline-block rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted">
-                                  Vendor contract
-                                </span>
-                              )}
-                              {analysis.contractOverview.parties.value !== "Not found" && (
-                                <HighlightField
-                                  as="p"
-                                  className="mt-0.5 text-sm font-semibold text-foreground"
-                                  active={isHighlighted("overview", "parties")}
-                                  forwardedRef={overviewFieldRefs.parties}
-                                >
-                                  {analysis.contractOverview.parties.value}
-                                </HighlightField>
-                              )}
-                            </div>
-                          </div>
-                        </section>
-                      )}
-
-                      {/* Zone 2 — Important dates */}
-                      {analysis.importantDates && (
-                        <section className="rounded-md border border-hairline bg-background/30 p-5">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                            Important dates
-                          </p>
-                          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                            {(Object.keys(datesLabels) as (keyof ImportantDates)[])
-                              .filter((key) => analysis.importantDates![key].value !== "Not found")
-                              .map((key) => (
-                                <FieldCard
-                                  key={key}
-                                  label={datesLabels[key]}
-                                  field={analysis.importantDates![key]}
-                                  mono
-                                  highlighted={isHighlighted("dates", key)}
-                                  forwardedRef={registerFieldRef("dates", key)}
-                                  onOpenCitation={openCitation}
-                                />
-                              ))}
-                          </div>
-                        </section>
-                      )}
-
-                      {/* Zone 3 — Commercial terms */}
-                      {analysis.commercialTerms && (
-                        <section className="rounded-md border border-hairline bg-background/30 p-5">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                            Commercial terms
-                          </p>
-                          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                            {(Object.keys(termsLabels) as (keyof CommercialTerms)[]).map((key) => (
-                              <FieldCard
-                                key={key}
-                                label={termsLabels[key]}
-                                field={analysis.commercialTerms![key]}
-                                mono
-                                primary={key === "contractValue"}
-                                highlighted={isHighlighted("terms", key)}
-                                forwardedRef={registerFieldRef("terms", key)}
-                                onOpenCitation={openCitation}
-                              />
-                            ))}
-                          </div>
-                        </section>
-                      )}
-
-                      {/* Zone 4 — Key clauses */}
-                      {analysis.keyClauses && (
-                        <section className="rounded-md border border-hairline bg-background/30 p-5">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                            Key clauses
-                          </p>
-                          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            {(Object.keys(clausesLabels) as (keyof KeyClauses)[]).map((key) => (
-                              <ClauseCard
-                                key={key}
-                                label={clausesLabels[key]}
-                                field={analysis.keyClauses![key]}
-                                highlighted={isHighlighted("clauses", key)}
-                                forwardedRef={registerFieldRef("clauses", key)}
-                                onOpenCitation={openCitation}
-                              />
-                            ))}
-                          </div>
-                        </section>
-                      )}
-
-                      {/* Zone 5 — Things to watch */}
-                      <section className={`rounded-md border ${watchTone.border} bg-background/30 p-5`}>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className={`text-[11px] font-medium uppercase tracking-[0.04em] ${watchTone.label}`}>
-                            Things to watch
-                          </p>
-                          {watchCount > 0 && (
-                            <p className="text-xs tabular-nums text-muted">
-                              {[
-                                highCount > 0 ? `${highCount} high` : null,
-                                mediumCount > 0 ? `${mediumCount} medium` : null,
-                                lowCount > 0 ? `${lowCount} low` : null,
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </p>
-                          )}
-                        </div>
-                        <div className="mt-4">
-                          {watchCount > 0 ? (
-                            <div className="space-y-2">
-                              {displayedWatchItems.map(({ item, i }) => (
-                                <WatchAccordionItem
-                                  key={i}
-                                  item={item}
-                                  open={openWatchItems.has(i)}
-                                  onToggle={() => toggleWatchItem(i)}
-                                  onWhyRisky={() => handleWhyRisky(i)}
-                                  highlighted={highlightWatchIndex === i}
-                                  forwardedRef={registerWatchRef(i)}
-                                  onOpenCitation={openCitation}
-                                />
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="py-2.5 text-sm text-muted">No significant risks flagged.</p>
-                          )}
-                        </div>
-                      </section>
-                    </div>
-                  )}
-
-                </>
-              ) : (
-                <div className="px-5 py-4">
-                  <h3 className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                    Raw response
-                  </h3>
-                  <p className="mt-2 whitespace-pre-wrap font-mono text-sm leading-5 text-foreground">{rawAnalysis}</p>
-                  <p className="mt-3 text-xs text-muted">
-                    Couldn&apos;t parse this as structured data, so showing the raw text instead.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-      )}
-
-      {appState === "results" && (
-      <footer className="border-t border-hairline">
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-6 py-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
-          <span>Contract Intelligence</span>
-          <span>AI-powered contract analysis</span>
-        </div>
-      </footer>
-      )}
 
       {/* Persistent AI affordance — quiet, corner-anchored, present on every screen */}
       <button

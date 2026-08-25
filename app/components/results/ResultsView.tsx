@@ -23,7 +23,8 @@ import "./results.css";
 import Sidebar from "./Sidebar";
 import FieldCard from "./FieldCard";
 import WatchCard from "./WatchCard";
-import { IconAlertTriangle, IconCalendar, IconChevronDown, IconCiteGlyph, IconFile, IconFileCheck, IconList } from "./icons";
+import CiteTag from "./CiteTag";
+import { IconAlertTriangle, IconCalendar, IconChevronDown, IconFile, IconFileCheck, IconList } from "./icons";
 
 export type ResultSectionId = "overview" | "dates" | "terms" | "clauses" | "watch";
 
@@ -494,21 +495,7 @@ function GlanceCard({
       >
         {field.value}
       </p>
-      {!notFound && hasCitation && (
-        <button
-          type="button"
-          className="tag tag-outline"
-          onClick={() => field.page != null && onOpenCitation(field.page, field.section)}
-          style={{ display: "inline-flex", alignItems: "center", gap: 4, minWidth: 0, maxWidth: "100%", cursor: "pointer", font: "inherit", background: "transparent" }}
-        >
-          <IconCiteGlyph />
-          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {field.page != null ? `Page ${field.page}` : ""}
-            {field.page != null && field.section ? " · " : ""}
-            {field.section ? field.section.replace(/^section\s+/i, "§") : ""}
-          </span>
-        </button>
-      )}
+      {!notFound && hasCitation && <CiteTag page={field.page} section={field.section} onOpen={onOpenCitation} />}
     </div>
   );
 }

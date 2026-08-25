@@ -12,6 +12,7 @@ import {
   severityRank,
 } from "@/lib/contract-analysis";
 import "../components/results/results.css";
+import CiteTag from "../components/results/CiteTag";
 
 interface StoredAnalysis {
   id: string;
@@ -162,11 +163,6 @@ function buildRollup(rows: StoredAnalysis[]): RollupItem[] {
   return items.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
 }
 
-function formatCitation(section: string | null): string | null {
-  if (!section) return null;
-  return section.replace(/^section\s+/i, "§");
-}
-
 function Corners() {
   return (
     <>
@@ -185,6 +181,12 @@ export default function DashboardPage() {
   const [analyses, setAnalyses] = useState<StoredAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // The dashboard only ever holds extracted data, never a source PDF (unlike
+  // the results view, which can open the real file for a live upload) — any
+  // citation clicked here always lands on this same "not available" notice.
+  const [viewerCitation, setViewerCitation] = useState<{ page: number; section: string | null } | null>(null);
+  const openCitation = (page: number, section: string | null) => setViewerCitation({ page, section });
 
   // sessionStorage only exists client-side; useSyncExternalStore is React's
   // sanctioned way to read an external, browser-only store like this without
@@ -273,10 +275,12 @@ export default function DashboardPage() {
   return (
     <div className="ci-results" style={{ minHeight: "100vh", background: "var(--color-bg)", color: "var(--color-text)", display: "flex", flexDirection: "column" }}>
       <nav className="nav" style={{ borderBottom: "1px solid var(--color-divider)", flex: "none", position: "sticky", top: 0, zIndex: 50, background: "var(--color-bg)" }}>
-        <Link href="/" className="nav-brand" style={{ color: "var(--color-text)" }}>
+        <Link href="/" className="nav-brand" style={{ color: "var(--color-text)", marginRight: 0 }}>
           Contract Intelligence
         </Link>
-        <Link href="/" className="btn btn-primary blueprint">
+        <span className="text-muted" style={{ fontSize: 14 }}>/</span>
+        <span style={{ fontSize: 14, fontWeight: 500 }}>Dashboard</span>
+        <Link href="/" className="btn btn-primary blueprint" style={{ marginLeft: "auto" }}>
           <Corners />
           New analysis
         </Link>
@@ -496,7 +500,7 @@ export default function DashboardPage() {
                   </div>
                   <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
                     {rollup.map((item, i) => {
-                      const citation = formatCitation(item.section);
+                      const hasCitation = item.page != null || item.section != null;
                       const provenance = [item.contractLabel, item.contractType].filter(Boolean).join(" · ");
                       return (
                         <div key={i} className="card blueprint" style={{ padding: "13px 15px", borderColor: SEVERITY_BORDER[item.severity] }}>
@@ -515,11 +519,7 @@ export default function DashboardPage() {
                                   {provenance}
                                 </span>
                               )}
-                              {citation && (
-                                <span className="tag tag-neutral" style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {citation}
-                                </span>
-                              )}
+                              {hasCitation && <CiteTag page={item.page} section={item.section} onOpen={openCitation} maxWidth={140} />}
                             </span>
                           </div>
                           <p className="text-muted" style={{ marginTop: 6, fontSize: 13, lineHeight: 1.5 }}>{item.explanation}</p>
@@ -533,6 +533,35 @@ export default function DashboardPage() {
           )}
         </div>
       </main>
+
+      {viewerCitation && (
+        <div
+          role="presentation"
+          onClick={() => setViewerCitation(null)}
+          className="animate-fade-in"
+          style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.4)", padding: "32px 16px" }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Source unavailable"
+            onClick={(e) => e.stopPropagation()}
+            className="card blueprint"
+            style={{ width: "100%", maxWidth: 380, padding: 20, textAlign: "center", background: "var(--color-bg)" }}
+          >
+            <Corners />
+            <p style={{ fontWeight: 600, fontSize: 15 }}>Original PDF not available</p>
+            <p className="text-muted" style={{ marginTop: 6, fontSize: 13.5, lineHeight: 1.55 }}>
+              This citation points to page {viewerCitation.page}
+              {viewerCitation.section ? `, ${viewerCitation.section}` : ""} — but only the extracted data is saved
+              across your contracts, not the source files.
+            </p>
+            <button type="button" className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => setViewerCitation(null)}>
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

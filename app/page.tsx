@@ -7,6 +7,7 @@ import {
   VIEW_REQUEST_STORAGE_KEY,
   STREAM_CONTRACT_TEXT_DELIMITER,
 } from "@/lib/contract-analysis";
+import { clearLiveAnalysisFile, getLiveAnalysisFile, setLiveAnalysisFile } from "@/lib/liveFileSession";
 import Spinner from "./components/Spinner";
 import CiteChip from "./components/CiteChip";
 import ContractSummaryPrint from "./components/ContractSummaryPrint";
@@ -412,6 +413,15 @@ export default function Home() {
       setAnalyzedAt(new Date());
       setAppState("results");
 
+      // If this is the contract just scanned in this same tab (e.g. a round
+      // trip through the dashboard via "Back to Analysis"), the real source
+      // PDF is still held outside React state and survived the navigation —
+      // restoring it here means citations open the actual file instead of
+      // falling back to the "not available" notice a genuinely past analysis
+      // (loaded from storage, no live file) correctly still shows.
+      const liveFile = getLiveAnalysisFile(hydrate.fileName);
+      if (liveFile) setSelectedFile(liveFile);
+
       try {
         sessionStorage.setItem(CURRENT_ANALYSIS_STORAGE_KEY, JSON.stringify({ fileName: hydrate.fileName, analysis: hydrate.analysis }));
       } catch {
@@ -620,6 +630,7 @@ export default function Home() {
     sessionStorage.removeItem(CURRENT_ANALYSIS_STORAGE_KEY);
     setArchivedFileName(null);
     setAnalyzedAt(null);
+    clearLiveAnalysisFile();
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -718,6 +729,7 @@ export default function Home() {
       setAnalysis(parsed);
       setRawAnalysis(raw);
       setContractText(finalContractText);
+      setLiveAnalysisFile(selectedFile);
 
       try {
         sessionStorage.setItem(

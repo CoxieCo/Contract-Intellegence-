@@ -27,13 +27,13 @@ function buildKeyFacts(analysis: ContractAnalysis): KeyFact[] {
   const terms = analysis.commercialTerms;
   const clauses = analysis.keyClauses;
 
-  if (dates && !notFound(dates.renewalDate.value)) facts.push({ label: "Renewal date", value: dates.renewalDate.value });
-  if (dates && !notFound(dates.noticePeriod.value)) facts.push({ label: "Notice period", value: dates.noticePeriod.value });
-  if (dates && !notFound(dates.autoRenewal.value)) facts.push({ label: "Auto-renewal", value: dates.autoRenewal.value });
-  if (terms && !notFound(terms.priceEscalation.value))
-    facts.push({ label: "Price escalation", value: terms.priceEscalation.value });
-  if (clauses && !notFound(clauses.termination.value)) facts.push({ label: "Termination", value: clauses.termination.value });
-  if (clauses && !notFound(clauses.liabilityCap.value)) facts.push({ label: "Liability cap", value: clauses.liabilityCap.value });
+  if (!notFound(dates?.renewalDate?.value)) facts.push({ label: "Renewal date", value: dates!.renewalDate.value });
+  if (!notFound(dates?.noticePeriod?.value)) facts.push({ label: "Notice period", value: dates!.noticePeriod.value });
+  if (!notFound(dates?.autoRenewal?.value)) facts.push({ label: "Auto-renewal", value: dates!.autoRenewal.value });
+  if (!notFound(terms?.priceEscalation?.value))
+    facts.push({ label: "Price escalation", value: terms!.priceEscalation.value });
+  if (!notFound(clauses?.termination?.value)) facts.push({ label: "Termination", value: clauses!.termination.value });
+  if (!notFound(clauses?.liabilityCap?.value)) facts.push({ label: "Liability cap", value: clauses!.liabilityCap.value });
 
   return facts;
 }
@@ -52,10 +52,10 @@ export default function ContractSummaryPrint({
   analyzedAt: Date;
 }) {
   const overview = analysis.contractOverview;
-  const title = overview && !notFound(overview.contractName.value) ? overview.contractName.value : fileName;
+  const title = !notFound(overview?.contractName?.value) ? overview!.contractName.value : fileName;
   const subline = [
-    overview && !notFound(overview.contractType.value) ? overview.contractType.value : null,
-    overview && !notFound(overview.parties.value) ? overview.parties.value : null,
+    !notFound(overview?.contractType?.value) ? overview!.contractType.value : null,
+    !notFound(overview?.parties?.value) ? overview!.parties.value : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -74,9 +74,9 @@ export default function ContractSummaryPrint({
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-400">Contract summary</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-neutral-900">{title}</h1>
           {subline && <p className="mt-1 text-sm text-neutral-500">{subline}</p>}
-          {overview && !notFound(overview.status.value) && (
+          {!notFound(overview?.status?.value) && (
             <span className="mt-2 inline-flex items-center rounded border border-neutral-300 px-2 py-0.5 text-xs font-medium text-neutral-600">
-              {overview.status.value}
+              {overview!.status.value}
             </span>
           )}
         </div>

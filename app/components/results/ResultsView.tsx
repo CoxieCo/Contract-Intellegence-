@@ -90,12 +90,20 @@ function isVendorContractType(contractType: string): boolean {
   return VENDOR_CONTRACT_TYPE_PATTERN.test(contractType);
 }
 
+const MISSING_FIELD: SourcedValue = { value: "Not found", page: null, section: null };
+
+// The model is asked to always include every field in the schema, but that's
+// not guaranteed — a response that drops one key (as opposed to a whole
+// section) used to crash every card here with "Cannot read properties of
+// undefined (reading 'value')" the instant it tried to render. Falling back
+// to the same "Not found" placeholder an intentionally-empty field already
+// uses keeps a partial response renderable instead of taking down the page.
 function fieldsFor<K extends string>(
   obj: Partial<Record<K, SourcedValue>> | undefined,
   labels: Record<K, string>
 ): { key: K; label: string; field: SourcedValue }[] {
   if (!obj) return [];
-  return (Object.keys(labels) as K[]).map((key) => ({ key, label: labels[key], field: obj[key]! }));
+  return (Object.keys(labels) as K[]).map((key) => ({ key, label: labels[key], field: obj[key] ?? MISSING_FIELD }));
 }
 
 function formatAnalyzedAt(d: Date): string {
@@ -290,13 +298,13 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
                 </p>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))", gap: 14 }}>
                   {analysis.importantDates && (
-                    <GlanceCard label="Renewal date" field={analysis.importantDates.renewalDate} onOpenCitation={onOpenCitation} />
+                    <GlanceCard label="Renewal date" field={analysis.importantDates.renewalDate ?? MISSING_FIELD} onOpenCitation={onOpenCitation} />
                   )}
                   {analysis.importantDates && (
-                    <GlanceCard label="Notice period" field={analysis.importantDates.noticePeriod} onOpenCitation={onOpenCitation} />
+                    <GlanceCard label="Notice period" field={analysis.importantDates.noticePeriod ?? MISSING_FIELD} onOpenCitation={onOpenCitation} />
                   )}
                   {analysis.keyClauses && (
-                    <GlanceCard label="Liability cap" field={analysis.keyClauses.liabilityCap} onOpenCitation={onOpenCitation} />
+                    <GlanceCard label="Liability cap" field={analysis.keyClauses.liabilityCap ?? MISSING_FIELD} onOpenCitation={onOpenCitation} />
                   )}
                 </div>
               </div>

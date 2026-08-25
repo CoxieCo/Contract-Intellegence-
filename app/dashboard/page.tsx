@@ -280,10 +280,21 @@ export default function DashboardPage() {
         </Link>
         <span className="text-muted" style={{ fontSize: 14 }}>/</span>
         <span style={{ fontSize: 14, fontWeight: 500 }}>Dashboard</span>
-        <Link href="/" className="btn btn-primary blueprint" style={{ marginLeft: "auto" }}>
-          <Corners />
-          New analysis
-        </Link>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
+          {currentSession && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => viewContract(currentSession.fileName, currentSession.analysis)}
+            >
+              Back to Analysis
+            </button>
+          )}
+          <Link href="/" className="btn btn-primary blueprint">
+            <Corners />
+            New analysis
+          </Link>
+        </div>
       </nav>
 
       <main style={{ flex: 1, minWidth: 0, padding: "32px 40px 90px", display: "flex", justifyContent: "center" }}>

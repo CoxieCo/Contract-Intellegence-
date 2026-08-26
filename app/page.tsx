@@ -341,7 +341,6 @@ export default function Home() {
   const [error, setError] = useState("");
 
   const [analysis, setAnalysis] = useState<ContractAnalysis | null>(null);
-  const [rawAnalysis, setRawAnalysis] = useState("");
   const [contractText, setContractText] = useState("");
 
   // Set only when the results view was restored from the dashboard (a past
@@ -407,7 +406,6 @@ export default function Home() {
     const hydrate = request;
     queueMicrotask(() => {
       setAnalysis(hydrate.analysis);
-      setRawAnalysis(JSON.stringify(hydrate.analysis, null, 2));
       setArchivedFileName(hydrate.fileName);
       setContractText("");
       setAnalyzedAt(new Date());
@@ -570,7 +568,6 @@ export default function Home() {
   const handleFile = (file: File) => {
     setError("");
     setAnalysis(null);
-    setRawAnalysis("");
 
     if (file.type !== "application/pdf") {
       setSelectedFile(null);
@@ -621,7 +618,6 @@ export default function Home() {
     setSelectedFile(null);
     setError("");
     setAnalysis(null);
-    setRawAnalysis("");
     setContractText("");
     setAppState("idle");
     setViewerCitation(null);
@@ -645,7 +641,6 @@ export default function Home() {
     setAppState("analyzing");
     setError("");
     setAnalysis(null);
-    setRawAnalysis("");
     setContractText("");
 
     // True once any section has landed and the view has switched from the
@@ -718,7 +713,7 @@ export default function Home() {
       const analysisText = delimiterIndex === -1 ? buffer : buffer.slice(0, delimiterIndex);
       const finalContractText = delimiterIndex === -1 ? "" : buffer.slice(delimiterIndex + STREAM_CONTRACT_TEXT_DELIMITER.length);
 
-      const { data: parsed, raw } = parseAnalysis(analysisText);
+      const { data: parsed } = parseAnalysis(analysisText);
 
       if (!parsed) {
         setError("The analysis didn't come back in a format we could read. Please try again.");
@@ -727,7 +722,6 @@ export default function Home() {
       }
 
       setAnalysis(parsed);
-      setRawAnalysis(raw);
       setContractText(finalContractText);
       setLiveAnalysisFile(selectedFile);
 
@@ -749,15 +743,17 @@ export default function Home() {
   };
 
   const handleDownload = () => {
-    if (!rawAnalysis) return;
+    if (!analysis) return;
 
-    const blob = new Blob([rawAnalysis], { type: "text/plain" });
+    // Pretty-printed parsed JSON, not the raw streamed model output — same
+    // format the dashboard's own Export button already produces.
+    const blob = new Blob([JSON.stringify(analysis, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const baseName = selectedFile?.name.replace(/\.pdf$/i, "") || "contract";
+    const baseName = selectedFile?.name.replace(/\.pdf$/i, "") || archivedFileName?.replace(/\.pdf$/i, "") || "contract";
 
     a.href = url;
-    a.download = `${baseName}-analysis.txt`;
+    a.download = `${baseName}-analysis.json`;
     a.click();
     URL.revokeObjectURL(url);
   };

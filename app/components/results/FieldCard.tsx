@@ -31,8 +31,17 @@ export default function FieldCard({
   const [expanded, setExpanded] = useState(false);
   const notFound = field.value === "Not found";
   const hasCitation = field.page != null || field.section != null;
-  const isLong = !notFound && field.value.length > PREVIEW_LEN;
-  const display = isLong && !expanded ? `${truncateAtWord(field.value, PREVIEW_LEN)}…` : field.value;
+
+  // Prefer the model's generated summary as the collapsed view (exact clause
+  // text stays available via expand, for verification/citation). Older
+  // stored analyses predate the "summary" field, so they fall back to the
+  // previous truncate-the-exact-text behavior instead.
+  const summary = field.summary?.trim();
+  const hasSummary = !notFound && !!summary && summary !== field.value;
+  const isLongLegacy = !notFound && !hasSummary && field.value.length > PREVIEW_LEN;
+  const showToggle = hasSummary || isLongLegacy;
+  const collapsedText = hasSummary ? summary : isLongLegacy ? `${truncateAtWord(field.value, PREVIEW_LEN)}…` : field.value;
+  const display = showToggle && !expanded ? collapsedText : field.value;
 
   return (
     <div
@@ -67,14 +76,14 @@ export default function FieldCard({
       >
         {display}
       </p>
-      {isLong && (
+      {showToggle && (
         <button
           type="button"
           className="btn btn-ghost"
           style={{ marginTop: 2, padding: 0, fontSize: 12, height: "auto", minHeight: 0 }}
           onClick={() => setExpanded((e) => !e)}
         >
-          {expanded ? "Show less" : "Read more"}
+          {expanded ? "Show summary" : hasSummary ? "View exact text" : "Read more"}
         </button>
       )}
     </div>

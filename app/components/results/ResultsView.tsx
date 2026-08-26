@@ -485,6 +485,10 @@ function GlanceCard({
 }) {
   const notFound = field.value === "Not found";
   const hasCitation = field.page != null || field.section != null;
+  // At a glance is meant to be a terse scan, not a wall of clause text — the
+  // full exact text is always one click away in the dedicated section below.
+  const summary = field.summary?.trim();
+  const display = !notFound && summary ? summary : field.value;
   return (
     <div className="card blueprint" style={{ padding: "16px 18px" }}>
       <i className="corner tl" />
@@ -501,7 +505,7 @@ function GlanceCard({
             : { fontSize: 18, fontWeight: 600, lineHeight: 1.3, margin: "0 0 8px" }
         }
       >
-        {field.value}
+        {display}
       </p>
       {!notFound && hasCitation && <CiteTag page={field.page} section={field.section} onOpen={onOpenCitation} />}
     </div>

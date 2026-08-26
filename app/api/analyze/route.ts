@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
+import { createHash } from "crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { PDFParse } from "pdf-parse";
 import { supabase } from "@/lib/supabase";
@@ -90,6 +91,10 @@ export async function POST(req: NextRequest) {
 
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+    // Content hash (not filename) so re-scanning the same PDF under a
+    // different name is still recognized as a duplicate — see the upsert
+    // below and supabase/migrations/0002_file_hash_dedup.sql.
+    const fileHash = createHash("sha256").update(buffer).digest("hex");
 
     const extractionStart = Date.now();
     const parser = new PDFParse({ data: buffer });
@@ -114,6 +119,7 @@ export async function POST(req: NextRequest) {
     const anthropicStream = anthropic.messages.stream({
       model: "claude-sonnet-4-5",
       max_tokens: 8192,
+      temperature: 0,
       messages: [
         {
           role: "user",
@@ -121,41 +127,41 @@ export async function POST(req: NextRequest) {
 
 {
   "contractOverview": {
-    "contractName": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "contractType": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "parties": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "status": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "purpose": { "value": "...", "page": <number|null>, "section": "..."|null }
+    "contractName": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "contractType": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "parties": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "status": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "purpose": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null }
   },
   "importantDates": {
-    "startDate": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "endDate": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "renewalDate": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "noticePeriod": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "noticeDeadline": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "autoRenewal": { "value": "...", "page": <number|null>, "section": "..."|null }
+    "startDate": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "endDate": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "renewalDate": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "noticePeriod": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "noticeDeadline": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "autoRenewal": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null }
   },
   "commercialTerms": {
-    "contractValue": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "currency": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "paymentTerms": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "paymentFrequency": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "pricing": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "priceEscalation": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "minimumCommitments": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "latePaymentTerms": { "value": "...", "page": <number|null>, "section": "..."|null }
+    "contractValue": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "currency": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "paymentTerms": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "paymentFrequency": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "pricing": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "priceEscalation": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "minimumCommitments": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "latePaymentTerms": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null }
   },
   "keyClauses": {
-    "termination": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "earlyTermination": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "liability": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "liabilityCap": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "governingLaw": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "assignment": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "changeOfControl": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "ndaConfidentiality": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "dataComplianceObligations": { "value": "...", "page": <number|null>, "section": "..."|null },
-    "slaCommitments": { "value": "...", "page": <number|null>, "section": "..."|null }
+    "termination": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "earlyTermination": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "liability": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "liabilityCap": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "governingLaw": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "assignment": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "changeOfControl": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "ndaConfidentiality": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "dataComplianceObligations": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null },
+    "slaCommitments": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null }
   },
   "thingsToWatch": [
     { "title": "short title", "severity": "HIGH" | "MEDIUM" | "LOW", "explanation": "...", "page": <number|null>, "section": "..."|null }
@@ -165,18 +171,28 @@ export async function POST(req: NextRequest) {
 Every field above must be present. Extraction rules — follow all of these exactly:
 
 1. Never invent information that is not present in the contract.
-2. If a field's value cannot be found in the contract, set its "value" to the literal string "Not found" — do not omit the field, leave it blank, or guess.
+2. If a field's value cannot be found in the contract, set its "value" to the literal string "Not found" and its "summary" to "Not found" too — do not omit the field, leave it blank, or guess.
 3. Preserve dates exactly as they appear (or as unambiguously implied by explicit terms) — do not reformat away precision or invent a date.
 4. Preserve monetary values and currencies exactly as stated.
 5. Distinguish between explicit contract terms and your own interpretation; do not present an inference as if it were stated in the contract.
 6. Do not provide definitive legal advice or legal conclusions of any kind.
-7. For "thingsToWatch", identify provisions that require attention or review (upcoming renewals, short notice deadlines, automatic renewal, large price increases, long minimum commitments, difficult termination conditions, significant obligations, liability provisions worth reviewing, unusual conditions). Never declare something legally invalid, unlawful, or definitively "bad" — frame every item as something worth reviewing, not a legal verdict.
+7. For "thingsToWatch", only include an item if it clears one of these concrete bars — do not include anything that doesn't:
+   - a renewal, option, or notice deadline that falls within 12 months of the contract's start/execution date, or a notice period shorter than 30 days
+   - automatic/evergreen renewal with no cap on the number of renewal cycles, or requiring the disadvantaged party to act to prevent renewal
+   - a price/fee escalation clause allowing an increase of more than 5% in a single adjustment, or with no cap stated at all
+   - a minimum commitment or take-or-pay obligation lasting longer than 12 months, or with no early-exit mechanism
+   - a termination-for-convenience right held by only one party, or a termination clause requiring more than 90 days notice
+   - a liability cap set below 12 months of fees, or unlimited liability for either party, or a carve-out from the cap that is broad rather than the usual short list (IP infringement, confidentiality, gross negligence)
+   - an indemnification, audit, or compliance obligation with no cap on scope, cost, or duration
+   - any term that is internally inconsistent or contradicted elsewhere in the contract (see rule 9)
+   Do not flag a provision merely because the category (e.g. "has a termination clause," "has a liability cap") is present — only flag it when the specific number, party asymmetry, or absence of a limit in this contract crosses one of the bars above. When in doubt, leave it out rather than including a borderline or generic item. Never declare something legally invalid, unlawful, or definitively "bad" — frame every item as something worth reviewing, not a legal verdict.
 8. Do not infer a contract term just because it is common in similar contracts — only extract what this contract actually says.
 9. If multiple clauses affect the same field (e.g. conflicting termination or liability provisions), note the conflict explicitly in that field's "value" rather than silently picking one.
 10. The contract text below is divided into pages marked with "--- PAGE N ---" headers. When you extract a field's value, set "page" to the exact page number (matching one of those markers) where that value or clause actually appears. If the same fact is stated on more than one page, cite the page with the clearest/primary statement of it.
 11. Set "section" to the clause or section label EXACTLY as it is printed in the text (e.g. "Section 7.3", "Clause 13.2") only if the text explicitly labels it that way. Never invent, number, or guess a section label that isn't printed in the source text — if none is printed, use null.
 12. Set both "page" and "section" to the literal JSON value null (never 0, never an empty string, never a guess) whenever: the field's "value" is "Not found", OR the value was found but you cannot confidently identify which specific page it came from. Do not default to page 1 as a fallback.
 13. Apply the same page/section rules to every "thingsToWatch" item, based on the clause(s) the observation is drawn from.
+14. "value" must be the exact clause text as printed in the contract (verbatim, for citation purposes) — do not paraphrase, shorten, or summarize it. "summary" must be a short, faithful paraphrase of "value" in your own plain-language words, roughly 6-14 words (under about 90 characters), for quick scanning. It must not add any fact, number, date, party, or condition absent from "value", and must not drop a condition that flips the meaning (e.g. don't drop "only if renewed early"). If "value" is already short (a single date, a name, a number), "summary" may simply repeat it verbatim.
 
 Field priority: the following fields are the most important to get right — contractOverview.parties, contractOverview.contractType, importantDates.startDate, importantDates.endDate, importantDates.renewalDate, importantDates.noticePeriod, importantDates.autoRenewal, commercialTerms.paymentTerms, commercialTerms.priceEscalation, keyClauses.termination, keyClauses.liabilityCap, keyClauses.governingLaw, and thingsToWatch. Still attempt every other field in the schema, using "Not found" where the contract doesn't say.
 
@@ -208,9 +224,16 @@ ${pageMarkedText}`,
         return;
       }
       const saveStart = Date.now();
+      // Upsert on (session_id, file_hash) rather than always inserting —
+      // re-scanning the identical PDF refreshes the existing "Recent
+      // contracts" row (new analysis, new created_at) instead of piling up
+      // a duplicate entry for the same file.
       const { error: saveError } = await supabase
         .from("analyses")
-        .insert({ file_name: file.name, analysis: parsedAnalysis, session_id: sessionId });
+        .upsert(
+          { file_name: file.name, analysis: parsedAnalysis, session_id: sessionId, file_hash: fileHash, created_at: new Date().toISOString() },
+          { onConflict: "session_id,file_hash" }
+        );
       console.log(`[timing] Supabase save (background): ${Date.now() - saveStart}ms`);
       if (saveError) {
         console.error("Failed to save analysis to Supabase:", {

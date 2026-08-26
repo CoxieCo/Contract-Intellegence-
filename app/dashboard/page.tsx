@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { CSSProperties, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   ContractAnalysis,
   CURRENT_ANALYSIS_STORAGE_KEY,
@@ -21,32 +21,18 @@ interface StoredAnalysis {
   analysis: ContractAnalysis;
 }
 
-// ---------- Severity treatment — same tokens/pattern as results/WatchCard.tsx ----------
+// ---------- Severity treatment — danger/warning tokens, per the Dashboard.dc.html design ----------
 
-const SEVERITY_TAG_CLASS: Record<ThingToWatch["severity"], string> = {
-  HIGH: "tag tag-outline",
-  MEDIUM: "tag tag-accent",
-  LOW: "tag tag-neutral",
-};
+function tagStyleFor(sev: ThingToWatch["severity"]): CSSProperties {
+  if (sev === "HIGH") return { border: "1px solid var(--color-danger)", color: "var(--color-danger)", background: "transparent" };
+  if (sev === "MEDIUM") return { border: "1px solid transparent", color: "var(--color-warning-text)", background: "var(--color-warning-bg)" };
+  return { border: "1px solid transparent", color: "var(--color-neutral-800)", background: "var(--color-neutral-100)" };
+}
 
-const SEVERITY_DOT: Record<ThingToWatch["severity"], string> = {
-  HIGH: "var(--color-accent-800)",
-  MEDIUM: "var(--color-accent-500)",
-  LOW: "var(--color-neutral-500)",
-};
-
-const SEVERITY_BORDER: Record<ThingToWatch["severity"], string> = {
-  HIGH: "var(--color-accent-700)",
-  MEDIUM: "var(--color-divider)",
-  LOW: "var(--color-divider)",
-};
-
-function zoneTone(items: { severity: ThingToWatch["severity"] }[]) {
-  const hasHigh = items.some((i) => i.severity === "HIGH");
-  const hasMedium = items.some((i) => i.severity === "MEDIUM");
-  if (hasHigh) return { border: "var(--color-accent-700)", label: "var(--color-accent-800)" };
-  if (hasMedium) return { border: "var(--color-accent-500)", label: "var(--color-accent-700)" };
-  return { border: "var(--color-divider)", label: "var(--color-text)" };
+function dotColorFor(sev: ThingToWatch["severity"]): string {
+  if (sev === "HIGH") return "var(--color-danger-dot)";
+  if (sev === "MEDIUM") return "var(--color-warning-dot)";
+  return "var(--color-neutral-500)";
 }
 
 function LightSpinner() {
@@ -62,6 +48,24 @@ function LightSpinner() {
         borderTopColor: "var(--color-accent-700)",
       }}
     />
+  );
+}
+
+function ChevronIcon({ rotated }: { rotated: boolean }) {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flex: "none", opacity: 0.6, transform: rotated ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 220ms cubic-bezier(0.4,0,0.2,1)" }}
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
   );
 }
 
@@ -101,14 +105,6 @@ function topWatchPreview(items: ThingToWatch[] | undefined): ThingToWatch | null
   return items.find((i) => i.severity === "HIGH") ?? items.find((i) => i.severity === "MEDIUM") ?? null;
 }
 
-function severityCounts(items: ThingToWatch[] | undefined) {
-  return {
-    high: items?.filter((i) => i.severity === "HIGH").length ?? 0,
-    medium: items?.filter((i) => i.severity === "MEDIUM").length ?? 0,
-    low: items?.filter((i) => i.severity === "LOW").length ?? 0,
-  };
-}
-
 interface DeadlineHit {
   dateValue: string;
   label: string;
@@ -146,6 +142,8 @@ function findNearestDeadline(rows: StoredAnalysis[]): DeadlineHit | null {
 interface RollupItem extends ThingToWatch {
   contractLabel: string;
   contractType: string;
+  rowId: string;
+  key: string;
 }
 
 // Every HIGH/MEDIUM item across every stored analysis, sorted HIGH first.
@@ -154,14 +152,16 @@ function buildRollup(rows: StoredAnalysis[]): RollupItem[] {
   for (const row of rows) {
     const label = contractLabel(row.analysis, row.file_name);
     const type = row.analysis.contractOverview?.contractType?.value ?? "";
-    for (const item of row.analysis.thingsToWatch ?? []) {
+    (row.analysis.thingsToWatch ?? []).forEach((item, idx) => {
       if (item.severity === "HIGH" || item.severity === "MEDIUM") {
-        items.push({ ...item, contractLabel: label, contractType: type !== "Not found" ? type : "" });
+        items.push({ ...item, contractLabel: label, contractType: type !== "Not found" ? type : "", rowId: row.id, key: `${row.id}:${idx}` });
       }
-    }
+    });
   }
   return items.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
 }
+
+const ROLLUP_CAP = 4;
 
 function Corners() {
   return (
@@ -187,6 +187,23 @@ export default function DashboardPage() {
   // citation clicked here always lands on this same "not available" notice.
   const [viewerCitation, setViewerCitation] = useState<{ page: number; section: string | null } | null>(null);
   const openCitation = (page: number, section: string | null) => setViewerCitation({ page, section });
+
+  // Clicking a "Recent contracts" tile filters the Things to Watch rollup
+  // down to that one contract (and swaps the detail panel to it) rather than
+  // navigating away — click the same tile again to clear the filter.
+  const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
+  const [expandedRollupRows, setExpandedRollupRows] = useState<Record<string, boolean>>({});
+  const [showAllRollup, setShowAllRollup] = useState(false);
+
+  const toggleContractFilter = (rowId: string) => {
+    // Clicking the tile that's already effectively shown (whether that's an
+    // explicit selection or just the default open contract) reverts to the
+    // default rather than leaving the filter pinned to the same contract.
+    setSelectedContractId((prev) => ((prev ?? defaultOpenRowId) === rowId ? null : rowId));
+    setShowAllRollup(false);
+    setExpandedRollupRows({});
+  };
+  const toggleRollupRow = (key: string) => setExpandedRollupRows((s) => ({ ...s, [key]: !s[key] }));
 
   // sessionStorage only exists client-side; useSyncExternalStore is React's
   // sanctioned way to read an external, browser-only store like this without
@@ -237,23 +254,55 @@ export default function DashboardPage() {
   );
   const nearestDeadline = useMemo(() => findNearestDeadline(analyses), [analyses]);
   const rollup = useMemo(() => buildRollup(analyses), [analyses]);
-  const rollupHighCount = rollup.filter((i) => i.severity === "HIGH").length;
-  const rollupMediumCount = rollup.filter((i) => i.severity === "MEDIUM").length;
-  const rollupTone = zoneTone(rollup);
 
   // Best-effort correlation between the client-only "current session" and a
   // stored row — no shared id exists between them, so file name is the only
   // link available.
   const currentRowId = analyses.find((row) => row.file_name === currentSession?.fileName)?.id;
 
-  const currentSeverity = severityCounts(currentSession?.analysis.thingsToWatch);
+  // With no explicit tile selection, the dashboard opens focused on the live
+  // session's contract if there is one, else the most recently analyzed one
+  // (the API already returns `analyses` newest-first) — never an empty panel
+  // when there's something to show. Clicking a Recent Contracts tile
+  // overrides this; clicking that same tile again reverts to the default.
+  const defaultOpenRowId = currentRowId ?? analyses[0]?.id ?? null;
+  const effectiveSelectedId = selectedContractId ?? defaultOpenRowId;
 
-  const handleExport = () => {
-    if (!currentSession) return;
-    const blob = new Blob([JSON.stringify(currentSession.analysis, null, 2)], { type: "application/json" });
+  const selectedRow = effectiveSelectedId ? analyses.find((r) => r.id === effectiveSelectedId) ?? null : null;
+  const filteredRollup = effectiveSelectedId ? rollup.filter((i) => i.rowId === effectiveSelectedId) : rollup;
+  const rollupHighCount = filteredRollup.filter((i) => i.severity === "HIGH").length;
+  const rollupMediumCount = filteredRollup.filter((i) => i.severity === "MEDIUM").length;
+  const canExpandRollup = filteredRollup.length > ROLLUP_CAP;
+  const visibleRollup = showAllRollup ? filteredRollup : filteredRollup.slice(0, ROLLUP_CAP);
+  const rollupIsEmpty = filteredRollup.length === 0;
+  const rollupBorder = rollupHighCount > 0 ? "var(--color-danger)" : rollupMediumCount > 0 ? "var(--color-warning-border)" : "var(--color-divider)";
+  const rollupLabelColor = rollupHighCount > 0 ? "var(--color-danger)" : rollupMediumCount > 0 ? "var(--color-warning-text)" : "var(--color-text)";
+  const rollupCountLabel = [rollupHighCount > 0 ? `${rollupHighCount} high` : null, rollupMediumCount > 0 ? `${rollupMediumCount} medium` : null]
+    .filter(Boolean)
+    .join(" · ");
+
+  // The detail panel shows whichever contract is selected via a Recent
+  // Contracts tile (defaulting as above), falling back to the live session's
+  // contract directly if it hasn't shown up in `analyses` yet — the same
+  // "open" target both "View full analysis" and "Export" act on.
+  const openTarget: { fileName: string; analysis: ContractAnalysis } | null = selectedRow
+    ? { fileName: selectedRow.file_name, analysis: selectedRow.analysis }
+    : currentSession
+    ? { fileName: currentSession.fileName, analysis: currentSession.analysis }
+    : analyses[0]
+    ? { fileName: analyses[0].file_name, analysis: analyses[0].analysis }
+    : null;
+  const openLabel = openTarget ? contractLabel(openTarget.analysis, openTarget.fileName) : "";
+  const openValue = openTarget?.analysis.commercialTerms?.contractValue?.value;
+  const openHasValue = !!openValue && openValue !== "Not found";
+  const openParties = openTarget?.analysis.contractOverview?.parties?.value;
+  const openPurpose = openTarget?.analysis.contractOverview?.purpose?.value;
+
+  const exportAnalysis = (fileName: string, analysis: ContractAnalysis) => {
+    const blob = new Blob([JSON.stringify(analysis, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const baseName = currentSession.fileName.replace(/\.pdf$/i, "") || "contract";
+    const baseName = fileName.replace(/\.pdf$/i, "") || "contract";
     a.href = url;
     a.download = `${baseName}-analysis.json`;
     a.click();
@@ -316,7 +365,7 @@ export default function DashboardPage() {
           </div>
 
           {error && (
-            <p role="alert" className="card blueprint" style={{ padding: "12px 16px", borderColor: "var(--color-accent-700)", fontSize: 14, fontWeight: 500 }}>
+            <p role="alert" className="card blueprint" style={{ padding: "12px 16px", borderColor: "var(--color-danger)", fontSize: 14, fontWeight: 500 }}>
               <Corners />
               {error}
             </p>
@@ -360,7 +409,7 @@ export default function DashboardPage() {
                   <Corners />
                   <p className="card-kicker">High-severity findings</p>
                   <p style={{ marginTop: 6, display: "flex", alignItems: "baseline", gap: 6 }}>
-                    <span style={{ fontSize: 26, fontWeight: 600, color: crossHighCount > 0 ? "var(--color-accent-800)" : "var(--color-text)" }}>
+                    <span style={{ fontSize: 26, fontWeight: 600, color: crossHighCount > 0 ? "var(--color-danger)" : "var(--color-text)" }}>
                       {crossHighCount}
                     </span>
                     <span className="text-muted" style={{ fontSize: 12 }}>open</span>
@@ -380,8 +429,9 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Currently-open contract */}
-              {currentSession && (
+              {/* Open contract detail — the live session by default, or whichever
+                  Recent Contracts tile is selected as a filter */}
+              {openTarget && (
                 <section className="card blueprint" style={{ padding: "20px 22px", borderColor: "var(--color-accent-700)" }}>
                   <Corners />
                   <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
@@ -389,61 +439,32 @@ export default function DashboardPage() {
                       <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-accent-800)" }} />
                       Currently open
                     </span>
-                    {(currentSession.analysis.commercialTerms?.contractValue?.value &&
-                      currentSession.analysis.commercialTerms.contractValue.value !== "Not found") ||
-                    currentSeverity.high > 0 ||
-                    currentSeverity.medium > 0 ||
-                    currentSeverity.low > 0 ? (
-                      <div style={{ textAlign: "right" }}>
-                        {currentSession.analysis.commercialTerms?.contractValue?.value &&
-                          currentSession.analysis.commercialTerms.contractValue.value !== "Not found" && (
-                            <p style={{ fontFamily: "var(--font-heading)", fontSize: 19, fontWeight: 600 }}>
-                              {currentSession.analysis.commercialTerms.contractValue.value}
-                            </p>
-                          )}
-                        {(currentSeverity.high > 0 || currentSeverity.medium > 0 || currentSeverity.low > 0) && (
-                          <div style={{ marginTop: 6, display: "flex", justifyContent: "flex-end", gap: 6 }}>
-                            {currentSeverity.high > 0 && (
-                              <span className={SEVERITY_TAG_CLASS.HIGH}>{currentSeverity.high} high</span>
-                            )}
-                            {currentSeverity.medium > 0 && (
-                              <span className={SEVERITY_TAG_CLASS.MEDIUM}>{currentSeverity.medium} medium</span>
-                            )}
-                            {currentSeverity.low > 0 && (
-                              <span className={SEVERITY_TAG_CLASS.LOW}>{currentSeverity.low} low</span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
+                    {openHasValue && (
+                      <p style={{ fontFamily: "var(--font-heading)", fontSize: 19, fontWeight: 600, margin: 0 }}>{openValue}</p>
+                    )}
                   </div>
 
-                  <h2 style={{ marginTop: 12, fontSize: 22, fontWeight: 600 }}>
-                    {currentSession.analysis.contractOverview?.contractName?.value ?? currentSession.fileName}
-                  </h2>
-                  {currentSession.analysis.contractOverview?.parties?.value &&
-                    currentSession.analysis.contractOverview.parties.value !== "Not found" && (
-                      <p className="text-muted" style={{ marginTop: 4, fontSize: 14 }}>{currentSession.analysis.contractOverview.parties.value}</p>
-                    )}
-                  {currentSession.analysis.contractOverview?.purpose?.value &&
-                    currentSession.analysis.contractOverview.purpose.value !== "Not found" && (
-                      <p className="text-muted" style={{ marginTop: 8, maxWidth: 620, fontSize: 13.5, lineHeight: 1.55 }}>
-                        {currentSession.analysis.contractOverview.purpose.value}
-                      </p>
-                    )}
+                  <h2 style={{ marginTop: 12, fontSize: 22, fontWeight: 600 }}>{openLabel}</h2>
+                  {openParties && openParties !== "Not found" && (
+                    <p className="text-muted" style={{ marginTop: 4, fontSize: 14 }}>{openParties}</p>
+                  )}
+                  {openPurpose && openPurpose !== "Not found" && (
+                    <p className="text-muted" style={{ marginTop: 8, maxWidth: 620, fontSize: 13.5, lineHeight: 1.55 }}>{openPurpose}</p>
+                  )}
 
                   <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
-                    <button type="button" className="btn btn-primary" onClick={() => viewContract(currentSession.fileName, currentSession.analysis)}>
+                    <button type="button" className="btn btn-primary" onClick={() => viewContract(openTarget.fileName, openTarget.analysis)}>
                       View full analysis
                     </button>
-                    <button type="button" className="btn btn-secondary" onClick={handleExport}>
+                    <button type="button" className="btn btn-secondary" onClick={() => exportAnalysis(openTarget.fileName, openTarget.analysis)}>
                       Export
                     </button>
                   </div>
                 </section>
               )}
 
-              {/* Recent contracts */}
+              {/* Recent contracts — click a tile to filter the rollup below to
+                  just that contract; click again to clear the filter */}
               {analyses.length > 0 && (
                 <section>
                   <p className="card-kicker" style={{ marginBottom: 10 }}>Recent contracts</p>
@@ -451,13 +472,20 @@ export default function DashboardPage() {
                     {analyses.map((row) => {
                       const preview = topWatchPreview(row.analysis.thingsToWatch);
                       const isCurrent = row.id === currentRowId;
+                      const isSelected = row.id === effectiveSelectedId;
                       return (
                         <button
                           key={row.id}
                           type="button"
-                          onClick={() => viewContract(row.file_name, row.analysis)}
+                          onClick={() => toggleContractFilter(row.id)}
                           className="card blueprint card-hover"
-                          style={{ width: 250, flex: "none", padding: "14px 16px" }}
+                          style={{
+                            width: 250,
+                            flex: "none",
+                            padding: "14px 16px",
+                            borderColor: isSelected ? "var(--color-accent-700)" : "var(--color-divider)",
+                            background: isSelected ? "var(--color-accent-100)" : "transparent",
+                          }}
                         >
                           <Corners />
                           <p style={{ fontWeight: 600, fontSize: 14.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -475,8 +503,8 @@ export default function DashboardPage() {
                           <div style={{ marginTop: 10 }}>
                             {preview ? (
                               <p style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
-                                <span className={SEVERITY_TAG_CLASS[preview.severity]} style={{ display: "inline-flex", alignItems: "center", gap: 5, flex: "none" }}>
-                                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: SEVERITY_DOT[preview.severity] }} />
+                                <span className="tag" style={{ ...tagStyleFor(preview.severity), display: "inline-flex", alignItems: "center", gap: 5, flex: "none" }}>
+                                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: dotColorFor(preview.severity) }} />
                                   {preview.severity}
                                 </span>
                                 <span className="text-muted" style={{ fontSize: 12, lineHeight: 1.4 }}>{preview.title}</span>
@@ -492,54 +520,81 @@ export default function DashboardPage() {
                 </section>
               )}
 
-              {/* Cross-contract Things to Watch rollup */}
-              {rollup.length > 0 && (
-                <section className="card blueprint" style={{ padding: "20px 22px", borderColor: rollupTone.border }}>
-                  <Corners />
-                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <p className="card-kicker" style={{ color: rollupTone.label, margin: 0 }}>
-                      Things to watch — across your contracts
-                    </p>
-                    <p className="text-muted" style={{ fontSize: 12 }}>
-                      {[
-                        rollupHighCount > 0 ? `${rollupHighCount} high` : null,
-                        rollupMediumCount > 0 ? `${rollupMediumCount} medium` : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                  </div>
-                  <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                    {rollup.map((item, i) => {
-                      const hasCitation = item.page != null || item.section != null;
-                      const provenance = [item.contractLabel, item.contractType].filter(Boolean).join(" · ");
-                      return (
-                        <div key={i} className="card blueprint" style={{ padding: "13px 15px", borderColor: SEVERITY_BORDER[item.severity] }}>
-                          <Corners />
-                          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-                            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <span className={SEVERITY_TAG_CLASS[item.severity]} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: SEVERITY_DOT[item.severity] }} />
-                                {item.severity}
-                              </span>
-                              <span style={{ fontWeight: 600, fontSize: 14 }}>{item.title}</span>
-                            </span>
-                            <span style={{ display: "flex", flex: "none", alignItems: "center", gap: 6 }}>
-                              {provenance && (
-                                <span className="text-muted" style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, textAlign: "right" }}>
-                                  {provenance}
-                                </span>
-                              )}
-                              {hasCitation && <CiteTag page={item.page} section={item.section} onOpen={openCitation} maxWidth={140} />}
-                            </span>
+              {/* Cross-contract Things to Watch rollup — expandable rows,
+                  optionally filtered to one contract via the tiles above */}
+              <section className="card blueprint" style={{ padding: "20px 22px", borderColor: rollupBorder }}>
+                <Corners />
+                <p className="card-kicker" style={{ color: rollupLabelColor, margin: 0 }}>Things to watch</p>
+                {rollupCountLabel && (
+                  <p className="text-muted" style={{ fontSize: 12, margin: "4px 0 0" }}>{rollupCountLabel}</p>
+                )}
+
+                <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {visibleRollup.map((item) => {
+                    const isOpen = !!expandedRollupRows[item.key];
+                    const hasCitation = item.page != null || item.section != null;
+                    const provenance = [item.contractLabel, item.contractType].filter(Boolean).join(" · ");
+                    return (
+                      <div
+                        key={item.key}
+                        className="blueprint"
+                        style={{ position: "relative", border: `1px solid ${item.severity === "HIGH" ? "var(--color-danger)" : "var(--color-divider)"}` }}
+                      >
+                        <Corners />
+                        <button
+                          type="button"
+                          onClick={() => toggleRollupRow(item.key)}
+                          style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "12px 15px" }}
+                        >
+                          <span className="tag" style={{ ...tagStyleFor(item.severity), display: "inline-flex", alignItems: "center", gap: 6, flex: "none" }}>
+                            <span style={{ width: 6, height: 6, borderRadius: "50%", background: dotColorFor(item.severity) }} />
+                            {item.severity}
+                          </span>
+                          <span style={{ fontWeight: 600, fontSize: 14, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {item.title}
+                          </span>
+                          <span className="text-muted" style={{ fontSize: 12, flex: "none", maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {item.contractLabel}
+                          </span>
+                          <ChevronIcon rotated={isOpen} />
+                        </button>
+
+                        <div className={`ci-accordion-panel ${isOpen ? "is-open" : ""}`}>
+                          <div>
+                            <div style={{ padding: "10px 15px 14px", borderTop: "1px solid var(--color-divider)", margin: "0 15px" }}>
+                              <p className="text-muted" style={{ fontSize: 13, lineHeight: 1.55, margin: 0 }}>{item.explanation}</p>
+                              <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                <span className="text-muted" style={{ fontSize: 12 }}>{provenance}</span>
+                                {hasCitation && <CiteTag page={item.page} section={item.section} onOpen={openCitation} maxWidth={170} />}
+                              </div>
+                            </div>
                           </div>
-                          <p className="text-muted" style={{ marginTop: 6, fontSize: 13, lineHeight: 1.5 }}>{item.explanation}</p>
                         </div>
-                      );
-                    })}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {rollupIsEmpty && (
+                  <p className="text-muted" style={{ fontSize: 13, padding: "10px 2px 0", margin: 0 }}>
+                    No high or medium severity items for this contract.
+                  </p>
+                )}
+
+                {canExpandRollup && (
+                  <div style={{ marginTop: 12, display: "flex", justifyContent: "center" }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowAllRollup((s) => !s)}
+                      className="btn"
+                      style={{ border: "none", color: "var(--color-accent)", fontSize: 13, padding: "6.8px 12px" }}
+                    >
+                      {showAllRollup ? "Show less" : `View all ${filteredRollup.length} items`}
+                      <ChevronIcon rotated={showAllRollup} />
+                    </button>
                   </div>
-                </section>
-              )}
+                )}
+              </section>
             </div>
           )}
         </div>

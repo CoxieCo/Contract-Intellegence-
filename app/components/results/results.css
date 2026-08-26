@@ -22,6 +22,13 @@
   --color-accent-700: #416180;
   --color-accent-800: #2c455d;
 
+  --color-danger: #b3261e;
+  --color-danger-dot: #d1453b;
+  --color-warning-bg: #fdf3c8;
+  --color-warning-text: #8a6d00;
+  --color-warning-dot: #d4a017;
+  --color-warning-border: #c9a227;
+
   --font-heading: var(--font-barlow-condensed), system-ui, sans-serif;
   --font-heading-weight: 600;
   --font-body: var(--font-barlow), system-ui, sans-serif;

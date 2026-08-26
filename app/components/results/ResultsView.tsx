@@ -37,7 +37,6 @@ interface ResultsViewProps {
   fileName: string;
   analyzedAt: Date | null;
   onOpenCitation: (page: number, section: string | null) => void;
-  onExportJson: () => void;
   onExportPdf: () => void;
 }
 
@@ -159,7 +158,7 @@ function SectionPanel({ open, children }: { open: boolean; children: ReactNode }
 }
 
 const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function ResultsView(
-  { analysis, fileName, analyzedAt, onOpenCitation, onExportJson, onExportPdf },
+  { analysis, fileName, analyzedAt, onOpenCitation, onExportPdf },
   ref
 ) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -282,10 +281,7 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
                 </Link>
                 <span className="tag tag-outline">Analyzed</span>
                 <button type="button" className="btn btn-secondary" onClick={onExportPdf}>
-                  Export PDF
-                </button>
-                <button type="button" className="btn btn-secondary" onClick={onExportJson}>
-                  Export
+                  Export Analysis
                 </button>
               </div>
             </div>

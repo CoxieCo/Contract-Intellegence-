@@ -298,17 +298,6 @@ export default function DashboardPage() {
   const openParties = openTarget?.analysis.contractOverview?.parties?.value;
   const openPurpose = openTarget?.analysis.contractOverview?.purpose?.value;
 
-  const exportAnalysis = (fileName: string, analysis: ContractAnalysis) => {
-    const blob = new Blob([JSON.stringify(analysis, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const baseName = fileName.replace(/\.pdf$/i, "") || "contract";
-    a.href = url;
-    a.download = `${baseName}-analysis.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   // Handoff to the homepage, which restores this into the exact same
   // results-zone experience a fresh analysis gets — not a stripped-down
   // dashboard-only view.
@@ -455,9 +444,6 @@ export default function DashboardPage() {
                   <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
                     <button type="button" className="btn btn-primary" onClick={() => viewContract(openTarget.fileName, openTarget.analysis)}>
                       View full analysis
-                    </button>
-                    <button type="button" className="btn btn-secondary" onClick={() => exportAnalysis(openTarget.fileName, openTarget.analysis)}>
-                      Export
                     </button>
                   </div>
                 </section>

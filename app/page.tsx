@@ -742,22 +742,6 @@ export default function Home() {
     }
   };
 
-  const handleDownload = () => {
-    if (!analysis) return;
-
-    // Pretty-printed parsed JSON, not the raw streamed model output — same
-    // format the dashboard's own Export button already produces.
-    const blob = new Blob([JSON.stringify(analysis, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const baseName = selectedFile?.name.replace(/\.pdf$/i, "") || archivedFileName?.replace(/\.pdf$/i, "") || "contract";
-
-    a.href = url;
-    a.download = `${baseName}-analysis.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   // No PDF library involved — #print-summary-root (see globals.css's
   // @media print block) is already in the DOM, just hidden on screen, so
   // this only has to trigger the browser's own print dialog. "Save as PDF"
@@ -798,7 +782,6 @@ export default function Home() {
           fileName={selectedFile ? selectedFile.name : (archivedFileName ?? "Contract")}
           analyzedAt={analyzedAt}
           onOpenCitation={openCitation}
-          onExportJson={handleDownload}
           onExportPdf={handleExportPdf}
         />
       )}

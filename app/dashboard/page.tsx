@@ -7,9 +7,12 @@ import {
   ContractAnalysis,
   CURRENT_ANALYSIS_STORAGE_KEY,
   CurrentAnalysisSession,
+  FIELD_PREVIEW_LEN,
+  SourcedValue,
   ThingToWatch,
   VIEW_REQUEST_STORAGE_KEY,
   severityRank,
+  truncateAtWord,
 } from "@/lib/contract-analysis";
 import "../components/results/results.css";
 import CiteTag from "../components/results/CiteTag";
@@ -71,12 +74,45 @@ function ChevronIcon({ rotated }: { rotated: boolean }) {
 
 // ---------- Helpers ----------
 
+// A field's "value" is always the exact verbatim clause text (see the
+// extraction prompt in app/api/analyze/route.ts) — for contractName/parties
+// that's normally short, but a contract that only defines its parties via a
+// long "DISCLOSING PARTY (hereinafter...)"-style clause can make it very
+// long. Prefer the model's short paraphrase ("summary") for any compact
+// label; truncateAtWord is only the safety net for analyses stored before
+// that field existed.
+function shortFieldText(field: SourcedValue, max = FIELD_PREVIEW_LEN): string {
+  const summary = field.summary?.trim();
+  if (summary) return summary;
+  return field.value.length > max ? `${truncateAtWord(field.value, max)}…` : field.value;
+}
+
+// contractName is the contract's actual short title/name and should always
+// be preferred as a compact label — parties is only a fallback for the
+// (common) case where the model couldn't identify an explicit name, and even
+// then goes through shortFieldText so a verbose parties clause never shows
+// up whole in a tile or rollup row.
 function contractLabel(analysis: ContractAnalysis, fallback: string): string {
-  const parties = analysis.contractOverview?.parties?.value;
-  if (parties && parties !== "Not found") return parties;
-  const name = analysis.contractOverview?.contractName?.value;
-  if (name && name !== "Not found") return name;
+  const name = analysis.contractOverview?.contractName;
+  if (name && name.value !== "Not found") return shortFieldText(name);
+  const parties = analysis.contractOverview?.parties;
+  if (parties && parties.value !== "Not found") return shortFieldText(parties);
   return fallback;
+}
+
+// Same contractName-first preference as contractLabel above, but returning
+// the field itself (not a pre-shortened string) so the "Currently open"
+// panel's headline can offer the same "View exact text" expand affordance
+// FieldCard already gives every field in the Full Analysis view — a
+// dashboard-only plain string wouldn't have anywhere to expand to. `isParties`
+// tells the caller whether the supporting parties line below the headline
+// would just be repeating it.
+function pickHeadlineField(analysis: ContractAnalysis): { field: SourcedValue; isParties: boolean } | null {
+  const name = analysis.contractOverview?.contractName;
+  if (name && name.value !== "Not found") return { field: name, isParties: false };
+  const parties = analysis.contractOverview?.parties;
+  if (parties && parties.value !== "Not found") return { field: parties, isParties: true };
+  return null;
 }
 
 function relativeTime(dateString: string): string {
@@ -170,6 +206,39 @@ function Corners() {
       <i className="corner tr" />
       <i className="corner bl" />
       <i className="corner br" />
+    </>
+  );
+}
+
+// The "Currently open" panel's headline — same collapsed-summary /
+// expand-to-exact-text pattern as FieldCard in the Full Analysis view, so a
+// genuinely long contractName (or a parties field pressed into service as
+// the headline because no contractName was found) never renders as a wall
+// of verbatim legal text with no way to shrink it back down.
+function OpenHeadlineText({ field, fallback }: { field: SourcedValue | null; fallback: string }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!field) return <>{fallback}</>;
+
+  const summary = field.summary?.trim();
+  const hasSummary = !!summary && summary !== field.value;
+  const isLongLegacy = !hasSummary && field.value.length > FIELD_PREVIEW_LEN;
+  const showToggle = hasSummary || isLongLegacy;
+  const collapsedText = hasSummary ? summary : isLongLegacy ? `${truncateAtWord(field.value, FIELD_PREVIEW_LEN)}…` : field.value;
+  const display = showToggle && !expanded ? collapsedText : field.value;
+
+  return (
+    <>
+      {display}
+      {showToggle && (
+        <button
+          type="button"
+          className="btn btn-ghost"
+          style={{ marginLeft: 10, padding: 0, fontSize: 12, fontWeight: 500, height: "auto", minHeight: 0, verticalAlign: "middle" }}
+          onClick={() => setExpanded((e) => !e)}
+        >
+          {expanded ? "Show summary" : hasSummary ? "View exact text" : "Read more"}
+        </button>
+      )}
     </>
   );
 }
@@ -292,10 +361,14 @@ export default function DashboardPage() {
     : analyses[0]
     ? { fileName: analyses[0].file_name, analysis: analyses[0].analysis }
     : null;
-  const openLabel = openTarget ? contractLabel(openTarget.analysis, openTarget.fileName) : "";
+  const openHeadline = openTarget ? pickHeadlineField(openTarget.analysis) : null;
   const openValue = openTarget?.analysis.commercialTerms?.contractValue?.value;
   const openHasValue = !!openValue && openValue !== "Not found";
-  const openParties = openTarget?.analysis.contractOverview?.parties?.value;
+  // Only shown as supporting detail below the headline when the headline
+  // itself isn't already the parties field — otherwise it would just repeat
+  // verbatim what the heading above it already says (the original bug here).
+  const openPartiesField = openTarget?.analysis.contractOverview?.parties;
+  const showOpenParties = !!openPartiesField && openPartiesField.value !== "Not found" && !openHeadline?.isParties;
   const openPurpose = openTarget?.analysis.contractOverview?.purpose?.value;
 
   // Handoff to the homepage, which restores this into the exact same
@@ -433,9 +506,16 @@ export default function DashboardPage() {
                     )}
                   </div>
 
-                  <h2 style={{ marginTop: 12, fontSize: 22, fontWeight: 600 }}>{openLabel}</h2>
-                  {openParties && openParties !== "Not found" && (
-                    <p className="text-muted" style={{ marginTop: 4, fontSize: 14 }}>{openParties}</p>
+                  <h2 style={{ marginTop: 12, fontSize: 22, fontWeight: 600 }}>
+                    <OpenHeadlineText field={openHeadline?.field ?? null} fallback={openTarget.fileName} />
+                  </h2>
+                  {showOpenParties && (
+                    <p className="text-muted" style={{ marginTop: 4, fontSize: 14 }}>
+                      {openPartiesField!.summary?.trim() ||
+                        (openPartiesField!.value.length > FIELD_PREVIEW_LEN
+                          ? `${truncateAtWord(openPartiesField!.value, FIELD_PREVIEW_LEN)}…`
+                          : openPartiesField!.value)}
+                    </p>
                   )}
                   {openPurpose && openPurpose !== "Not found" && (
                     <p className="text-muted" style={{ marginTop: 8, maxWidth: 620, fontSize: 13.5, lineHeight: 1.55 }}>{openPurpose}</p>

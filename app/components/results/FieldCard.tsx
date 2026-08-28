@@ -1,17 +1,8 @@
 "use client";
 
 import { ReactNode, useState } from "react";
-import type { SourcedValue } from "@/lib/contract-analysis";
+import { FIELD_PREVIEW_LEN, truncateAtWord, type SourcedValue } from "@/lib/contract-analysis";
 import CiteTag from "./CiteTag";
-
-const PREVIEW_LEN = 100;
-
-function truncateAtWord(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const clipped = text.slice(0, max);
-  const lastSpace = clipped.lastIndexOf(" ");
-  return (lastSpace > max * 0.6 ? clipped.slice(0, lastSpace) : clipped).trimEnd();
-}
 
 export default function FieldCard({
   label,
@@ -38,9 +29,9 @@ export default function FieldCard({
   // previous truncate-the-exact-text behavior instead.
   const summary = field.summary?.trim();
   const hasSummary = !notFound && !!summary && summary !== field.value;
-  const isLongLegacy = !notFound && !hasSummary && field.value.length > PREVIEW_LEN;
+  const isLongLegacy = !notFound && !hasSummary && field.value.length > FIELD_PREVIEW_LEN;
   const showToggle = hasSummary || isLongLegacy;
-  const collapsedText = hasSummary ? summary : isLongLegacy ? `${truncateAtWord(field.value, PREVIEW_LEN)}…` : field.value;
+  const collapsedText = hasSummary ? summary : isLongLegacy ? `${truncateAtWord(field.value, FIELD_PREVIEW_LEN)}…` : field.value;
   const display = showToggle && !expanded ? collapsedText : field.value;
 
   return (

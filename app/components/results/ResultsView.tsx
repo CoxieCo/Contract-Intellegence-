@@ -1,12 +1,14 @@
 "use client";
 
 // The post-scan results view — sidebar navigation, an "at a glance" summary,
-// a top banner for the highest-severity flag, and five collapsible sections
-// (identity/dates/terms/clauses/things to watch) built from generic field
-// cards. Same "Industry" light theme as app/components/landing, imported
-// from the same Results.dc.html design and scoped under .ci-results so it
-// never leaks into the dark app shell (dashboard, PDF viewer, Ask AI palette
-// stay exactly as they are).
+// a top banner for the highest-severity flag, and six collapsible sections
+// (identity/dates/terms/clauses/things to watch/unknown fields) built from
+// generic field cards. Same "Industry" light theme as app/components/
+// landing, imported from the same Results.dc.html design and scoped under
+// .ci-results so it never leaks into the dark app shell (dashboard, PDF
+// viewer, Ask AI palette stay exactly as they are). "Not found" fields never
+// appear in the four content sections or the At a Glance cards — they're all
+// consolidated into the Unknown Fields section instead (see allMissing).
 
 import Link from "next/link";
 import { forwardRef, ReactNode, useImperativeHandle, useRef, useState } from "react";
@@ -24,9 +26,9 @@ import Sidebar from "./Sidebar";
 import FieldCard from "./FieldCard";
 import WatchCard from "./WatchCard";
 import CiteTag from "./CiteTag";
-import { IconAlertTriangle, IconCalendar, IconChevronDown, IconFile, IconFileCheck, IconList } from "./icons";
+import { IconAlertTriangle, IconCalendar, IconChevronDown, IconFile, IconFileCheck, IconHelpCircle, IconList } from "./icons";
 
-export type ResultSectionId = "overview" | "dates" | "terms" | "clauses" | "watch";
+export type ResultSectionId = "overview" | "dates" | "terms" | "clauses" | "watch" | "unknown";
 
 export interface ResultsViewHandle {
   jumpTo: (section: ResultSectionId, opts?: { fieldKey?: string; watchIndex?: number }) => void;
@@ -157,6 +159,26 @@ function SectionPanel({ open, children }: { open: boolean; children: ReactNode }
   );
 }
 
+// A single "Not found" field, consolidated into the Unknown Fields section
+// (see ResultsView below) instead of cluttering the section it belongs to —
+// still labeled with its category so context isn't lost. Keeps the "not
+// found, not guessed" principle fully intact (nothing is hidden, just kept
+// out of the way of the fields the contract actually answers).
+function MissingFieldCard({ label, category }: { label: string; category: string }) {
+  return (
+    <div className="card blueprint" style={{ padding: "12px 14px" }}>
+      <i className="corner tl" />
+      <i className="corner tr" />
+      <i className="corner bl" />
+      <i className="corner br" />
+      <p className="card-kicker">{label}</p>
+      <p style={{ marginTop: 6, fontStyle: "italic", fontSize: 14, color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}>
+        ({category}) — Not found
+      </p>
+    </div>
+  );
+}
+
 const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function ResultsView(
   { analysis, fileName, analyzedAt, onOpenCitation, onExportPdf },
   ref
@@ -168,6 +190,7 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
     terms: false,
     clauses: false,
     watch: false,
+    unknown: false,
   });
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
 
@@ -215,13 +238,43 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
     ...f,
     refCb: registerRef(`clauses.${f.key}`) as (el: HTMLDivElement | null) => void,
   }));
+  // "Not found" fields are pulled out of each section entirely — rather than
+  // cluttering the section someone is scanning for what the contract *does*
+  // say, every missing field across all four categories is consolidated into
+  // one "Unknown Fields" section further down (still labeled with which
+  // field and category it came from, so context isn't lost).
+  const splitFound = <T extends { field: SourcedValue }>(fields: T[]) => ({
+    found: fields.filter((f) => f.field.value !== "Not found"),
+    missing: fields.filter((f) => f.field.value === "Not found"),
+  });
+  const identitySplit = splitFound(identityFields);
+  const datesSplit = splitFound(datesFields);
+  const termsSplit = splitFound(termsFields);
+  const clausesSplit = splitFound(clausesFields);
+
+  const allMissing = [
+    ...identitySplit.missing.map((f) => ({ key: `overview.${f.key}`, label: f.label, category: "Contract Identity" })),
+    ...datesSplit.missing.map((f) => ({ key: `dates.${f.key}`, label: f.label, category: "Important Dates" })),
+    ...termsSplit.missing.map((f) => ({ key: `terms.${f.key}`, label: f.label, category: "Commercial Terms" })),
+    ...clausesSplit.missing.map((f) => ({ key: `clauses.${f.key}`, label: f.label, category: "Key Clauses" })),
+  ];
+
+  // At a glance shows the same three fields as before, but only the ones
+  // actually found — a "Not found" glance card is just clutter up top when
+  // the same gap is already covered by Unknown Fields further down.
+  const glanceCandidates: { label: string; field: SourcedValue }[] = [
+    analysis.importantDates?.renewalDate && { label: "Renewal date", field: analysis.importantDates.renewalDate },
+    analysis.importantDates?.noticePeriod && { label: "Notice period", field: analysis.importantDates.noticePeriod },
+    analysis.keyClauses?.liabilityCap && { label: "Liability cap", field: analysis.keyClauses.liabilityCap },
+  ].filter((c): c is { label: string; field: SourcedValue } => !!c && c.field.value !== "Not found");
+
   const watchItems = (analysis.thingsToWatch ?? []).map((w, i) => ({
     item: w,
     index: i,
     refCb: registerRef(`watch.${i}`) as (el: HTMLDivElement | null) => void,
   }));
 
-  const sectionRefs = (["overview", "dates", "terms", "clauses", "watch"] as ResultSectionId[]).reduce(
+  const sectionRefs = (["overview", "dates", "terms", "clauses", "watch", "unknown"] as ResultSectionId[]).reduce(
     (acc, id) => {
       acc[id] = registerRef(`section.${id}`) as (el: HTMLButtonElement | null) => void;
       return acc;
@@ -286,22 +339,16 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
               </div>
             </div>
 
-            {/* At a glance */}
-            {(analysis.importantDates || analysis.keyClauses) && (
+            {/* At a glance — only fields actually found in the document */}
+            {glanceCandidates.length > 0 && (
               <div>
                 <p style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-accent)", margin: "0 0 12px" }}>
                   At a glance
                 </p>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))", gap: 14 }}>
-                  {analysis.importantDates && (
-                    <GlanceCard label="Renewal date" field={analysis.importantDates.renewalDate ?? MISSING_FIELD} onOpenCitation={onOpenCitation} />
-                  )}
-                  {analysis.importantDates && (
-                    <GlanceCard label="Notice period" field={analysis.importantDates.noticePeriod ?? MISSING_FIELD} onOpenCitation={onOpenCitation} />
-                  )}
-                  {analysis.keyClauses && (
-                    <GlanceCard label="Liability cap" field={analysis.keyClauses.liabilityCap ?? MISSING_FIELD} onOpenCitation={onOpenCitation} />
-                  )}
+                  {glanceCandidates.map((c) => (
+                    <GlanceCard key={c.label} label={c.label} field={c.field} onOpenCitation={onOpenCitation} />
+                  ))}
                 </div>
               </div>
             )}
@@ -338,13 +385,13 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
               <SectionHeader
                 icon={<IconFile size={17} />}
                 title="Contract identity"
-                count="5 fields"
+                count={`${identitySplit.found.length} field${identitySplit.found.length !== 1 ? "s" : ""}`}
                 open={openSections.overview}
                 onToggle={() => toggleSection("overview")}
                 forwardedRef={sectionRefs.overview}
               />
               <SectionPanel open={openSections.overview}>
-                {identityFields.map((f) => (
+                {identitySplit.found.map((f) => (
                   <FieldCard
                     key={f.key}
                     label={f.label}
@@ -367,13 +414,13 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
               <SectionHeader
                 icon={<IconCalendar size={17} />}
                 title="Important dates"
-                count="6 fields"
+                count={`${datesSplit.found.length} field${datesSplit.found.length !== 1 ? "s" : ""}`}
                 open={openSections.dates}
                 onToggle={() => toggleSection("dates")}
                 forwardedRef={sectionRefs.dates}
               />
               <SectionPanel open={openSections.dates}>
-                {datesFields.map((f) => (
+                {datesSplit.found.map((f) => (
                   <FieldCard
                     key={f.key}
                     label={f.label}
@@ -391,13 +438,13 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
               <SectionHeader
                 icon={<IconList size={17} />}
                 title="Commercial terms"
-                count="8 fields"
+                count={`${termsSplit.found.length} field${termsSplit.found.length !== 1 ? "s" : ""}`}
                 open={openSections.terms}
                 onToggle={() => toggleSection("terms")}
                 forwardedRef={sectionRefs.terms}
               />
               <SectionPanel open={openSections.terms}>
-                {termsFields.map((f) => (
+                {termsSplit.found.map((f) => (
                   <FieldCard
                     key={f.key}
                     label={f.label}
@@ -415,13 +462,13 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
               <SectionHeader
                 icon={<IconFileCheck size={17} />}
                 title="Key clauses"
-                count="10 fields"
+                count={`${clausesSplit.found.length} field${clausesSplit.found.length !== 1 ? "s" : ""}`}
                 open={openSections.clauses}
                 onToggle={() => toggleSection("clauses")}
                 forwardedRef={sectionRefs.clauses}
               />
               <SectionPanel open={openSections.clauses}>
-                {clausesFields.map((f) => (
+                {clausesSplit.found.map((f) => (
                   <FieldCard
                     key={f.key}
                     label={f.label}
@@ -461,6 +508,29 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
                 </div>
               </div>
             </section>
+
+            {/* Unknown fields — every "Not found" field from the four
+                sections above, consolidated in one place instead of
+                cluttering each of them. Still labeled with which field and
+                category it belongs to. */}
+            <section>
+              <SectionHeader
+                icon={<IconHelpCircle size={17} />}
+                title="Unknown Fields"
+                count={`${allMissing.length} field${allMissing.length !== 1 ? "s" : ""}`}
+                open={openSections.unknown}
+                onToggle={() => toggleSection("unknown")}
+                forwardedRef={sectionRefs.unknown}
+              />
+              <SectionPanel open={openSections.unknown}>
+                {allMissing.length === 0 && (
+                  <p className="text-muted" style={{ fontSize: 13.5 }}>Nothing missing — every field in the schema was found in this document.</p>
+                )}
+                {allMissing.map((f) => (
+                  <MissingFieldCard key={f.key} label={f.label} category={f.category} />
+                ))}
+              </SectionPanel>
+            </section>
           </div>
         </main>
       </div>
@@ -470,6 +540,8 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
 
 export default ResultsView;
 
+// Only ever called with a field that was actually found (see glanceCandidates
+// above) — a "Not found" glance card would just duplicate Unknown Fields.
 function GlanceCard({
   label,
   field,
@@ -479,12 +551,11 @@ function GlanceCard({
   field: SourcedValue;
   onOpenCitation: (page: number, section: string | null) => void;
 }) {
-  const notFound = field.value === "Not found";
   const hasCitation = field.page != null || field.section != null;
   // At a glance is meant to be a terse scan, not a wall of clause text — the
   // full exact text is always one click away in the dedicated section below.
   const summary = field.summary?.trim();
-  const display = !notFound && summary ? summary : field.value;
+  const display = summary || field.value;
   return (
     <div className="card blueprint" style={{ padding: "16px 18px" }}>
       <i className="corner tl" />
@@ -494,16 +565,8 @@ function GlanceCard({
       <p className="card-kicker" style={{ margin: "0 0 6px" }}>
         {label}
       </p>
-      <p
-        style={
-          notFound
-            ? { fontSize: 18, fontWeight: 600, fontStyle: "italic", color: "color-mix(in srgb, var(--color-text) 55%, transparent)", lineHeight: 1.3, margin: 0 }
-            : { fontSize: 18, fontWeight: 600, lineHeight: 1.3, margin: "0 0 8px" }
-        }
-      >
-        {display}
-      </p>
-      {!notFound && hasCitation && <CiteTag page={field.page} section={field.section} onOpen={onOpenCitation} />}
+      <p style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.3, margin: "0 0 8px" }}>{display}</p>
+      {hasCitation && <CiteTag page={field.page} section={field.section} onOpen={onOpenCitation} />}
     </div>
   );
 }

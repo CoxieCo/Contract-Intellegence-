@@ -12,6 +12,7 @@ import Spinner from "./components/Spinner";
 import CiteChip from "./components/CiteChip";
 import ContractSummaryPrint from "./components/ContractSummaryPrint";
 import Landing from "./components/landing/Landing";
+import ScanningView from "./components/scan/ScanningView";
 import ResultsView, { ResultsViewHandle } from "./components/results/ResultsView";
 
 // react-pdf depends on browser-only APIs (Canvas, DOMMatrix, the PDF.js worker) and
@@ -138,6 +139,25 @@ const PALETTE_SUGGESTIONS = [
 ];
 
 // ---------- Helpers ----------
+
+// Loaded lazily (never at module scope) so this stays out of the server
+// render entirely — react-pdf's pdf.js sets up a worker via import.meta.url
+// that only makes sense in the browser, same reasoning as PdfViewer.tsx's
+// next/dynamic({ ssr: false }).
+async function detectPageCount(file: File): Promise<number | null> {
+  try {
+    const { pdfjs } = await import("react-pdf");
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+      "pdfjs-dist/build/pdf.worker.min.mjs",
+      import.meta.url
+    ).toString();
+    const buffer = await file.arrayBuffer();
+    const doc = await pdfjs.getDocument({ data: buffer }).promise;
+    return doc.numPages;
+  } catch {
+    return null;
+  }
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -342,6 +362,14 @@ export default function Home() {
 
   const [analysis, setAnalysis] = useState<ContractAnalysis | null>(null);
   const [contractText, setContractText] = useState("");
+
+  // Drive the scan loading screen's file card and checklist. pageCount is
+  // resolved client-side (pdf.js) right after a file is selected, purely for
+  // display — analysis itself doesn't need it. scanStepsDone/scanPhase are
+  // updated for real as each analysis section streams in (see handleContinue).
+  const [pageCount, setPageCount] = useState<number | null>(null);
+  const [scanStepsDone, setScanStepsDone] = useState(0);
+  const [scanPhase, setScanPhase] = useState<"scanning" | "complete">("scanning");
 
   // Set only when the results view was restored from the dashboard (a past
   // analysis, or the current one revisited) rather than a live upload — there
@@ -585,6 +613,18 @@ export default function Home() {
 
     setSelectedFile(file);
     setAppState("fileSelected");
+
+    // Page count for the scan loading screen's file card — display only, so
+    // a failure or a race with a fast file swap just leaves it blank rather
+    // than blocking anything. Guarded against a stale overwrite by checking
+    // this is still the selected file once pdf.js resolves.
+    setPageCount(null);
+    void detectPageCount(file).then((count) => {
+      setSelectedFile((current) => {
+        if (current === file) setPageCount(count);
+        return current;
+      });
+    });
   };
 
   const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
@@ -619,6 +659,7 @@ export default function Home() {
     setError("");
     setAnalysis(null);
     setContractText("");
+    setPageCount(null);
     setAppState("idle");
     setViewerCitation(null);
     setAskHistory([]);
@@ -635,6 +676,16 @@ export default function Home() {
 
   // ----- Analysis -----
 
+  // Fires when the user clicks "View results" on the (by then complete) scan
+  // loading screen — the actual switch to ResultsView is manual rather than
+  // automatic, so the checklist's finished state is always seen.
+  const viewResults = () => {
+    setViewerCitation(null);
+    setAskHistory([]);
+    setAskError("");
+    setAppState("results");
+  };
+
   const handleContinue = async () => {
     if (!selectedFile) return;
 
@@ -642,24 +693,10 @@ export default function Home() {
     setError("");
     setAnalysis(null);
     setContractText("");
+    setScanStepsDone(0);
+    setScanPhase("scanning");
 
-    // True once any section has landed and the view has switched from the
-    // "analyzing" spinner to the results panel — guards the one-time
-    // results-entry setup below from running more than once, and covers the
-    // (rare) case of a response that streamed in too fast to ever show a
-    // partial state, so that setup still runs once at the end.
-    let enteredResults = false;
     const seenKeys = new Set<keyof ContractAnalysis>();
-
-    const enterResultsView = () => {
-      if (enteredResults) return;
-      enteredResults = true;
-      setViewerCitation(null);
-      setAskHistory([]);
-      setAskError("");
-      setAnalyzedAt(new Date());
-      setAppState("results");
-    };
 
     try {
       const formData = new FormData();
@@ -705,7 +742,16 @@ export default function Home() {
         newKeys.forEach((k) => seenKeys.add(k));
 
         setAnalysis((prev) => ({ ...(prev ?? {}), ...partial }));
-        enterResultsView();
+
+        // The scan loading screen's checklist mirrors PARTIAL_ANALYSIS_KEYS'
+        // fixed order (which matches the key order Claude is asked to stream
+        // the JSON in) — count how many keys from the front are in, so a
+        // later section landing before an earlier one never shows a gap.
+        let leadingDone = 0;
+        while (leadingDone < PARTIAL_ANALYSIS_KEYS.length && seenKeys.has(PARTIAL_ANALYSIS_KEYS[leadingDone])) {
+          leadingDone++;
+        }
+        setScanStepsDone(leadingDone);
       }
       buffer += decoder.decode();
 
@@ -735,7 +781,9 @@ export default function Home() {
         // "currently open" card just won't have anything to show, harmless.
       }
 
-      enterResultsView();
+      setAnalyzedAt(new Date());
+      setScanStepsDone(PARTIAL_ANALYSIS_KEYS.length);
+      setScanPhase("complete");
     } catch {
       setError("Couldn't reach the analysis service. Is the dev server running?");
       setAppState("fileSelected");
@@ -753,8 +801,8 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       {/* Pre-scan marketing/landing page — its own light theme, own nav/hero/
-          upload/footer. Swapped out entirely once a contract is analyzed. */}
-      {appState !== "results" && (
+          upload/footer. Swapped out entirely once a scan starts. */}
+      {(appState === "idle" || appState === "fileSelected") && (
         <Landing
           appState={appState}
           selectedFile={selectedFile}
@@ -770,6 +818,20 @@ export default function Home() {
           onContinueClick={handleContinue}
           onScanCta={scrollToUpload}
           formatFileSize={formatFileSize}
+        />
+      )}
+
+      {/* Full-screen scan loading view — same light "Industry" theme, imported
+          from Scan Loading Screen.dc.html. Checklist rows track real analysis
+          sections as they stream in; "View results" only appears once every
+          section is done. */}
+      {appState === "analyzing" && selectedFile && (
+        <ScanningView
+          fileName={selectedFile.name}
+          pageCount={pageCount}
+          stepsDone={scanStepsDone}
+          phase={scanPhase}
+          onViewResults={viewResults}
         />
       )}
 

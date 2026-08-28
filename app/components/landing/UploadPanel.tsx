@@ -1,14 +1,17 @@
 "use client";
 
 // The real, functional upload dropzone — reskinned into the landing page's
-// blueprint aesthetic, but otherwise the same idle/fileSelected/analyzing
-// flow app/page.tsx has always driven. HeroDemo above it is illustrative
-// only; this is what actually takes a PDF and starts an analysis.
+// blueprint aesthetic, but otherwise the same idle/fileSelected flow
+// app/page.tsx has always driven. HeroDemo above it is illustrative only;
+// this is what actually takes a PDF and starts an analysis. Once "Continue"
+// is clicked, app/page.tsx swaps the whole Landing page out for the
+// full-screen ScanningView (app/components/scan) instead of showing an
+// "analyzing" state here.
 
 import { ChangeEvent, DragEvent, RefObject } from "react";
-import { IconFile, IconSpinner, IconUpload } from "./icons";
+import { IconFile, IconUpload } from "./icons";
 
-export type UploadAppState = "idle" | "fileSelected" | "analyzing";
+export type UploadAppState = "idle" | "fileSelected";
 
 interface UploadPanelProps {
   appState: UploadAppState;
@@ -160,30 +163,6 @@ export default function UploadPanel({
                 <button type="button" className="btn btn-primary" style={{ marginTop: 12 }} onClick={onContinueClick}>
                   Continue
                 </button>
-              </>
-            )}
-
-            {appState === "analyzing" && (
-              <>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 44,
-                    height: 44,
-                    border: "1px solid var(--color-divider)",
-                    marginBottom: 16,
-                  }}
-                >
-                  <IconSpinner />
-                </div>
-                <h3 style={{ fontSize: 17, fontWeight: 600, fontFamily: "var(--font-heading)", textTransform: "none", letterSpacing: 0 }}>
-                  Analyzing your contract…
-                </h3>
-                <p style={{ marginTop: 6, maxWidth: 360, fontSize: 14, lineHeight: "21px", color: dim }}>
-                  Reading through {selectedFile?.name ?? "your document"}. This usually takes a few seconds.
-                </p>
               </>
             )}
           </div>

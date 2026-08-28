@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { IconAlertTriangle, IconCalendar, IconFile, IconFileCheck, IconList } from "./icons";
+import { IconAlertTriangle, IconCalendar, IconFile, IconFileCheck, IconHelpCircle, IconList } from "./icons";
 import type { ResultSectionId } from "./ResultsView";
 
 interface SidebarProps {
@@ -110,6 +110,11 @@ export default function Sidebar({ collapsed, onToggleCollapsed, onJump }: Sideba
         <button type="button" className="sidebar-link" title="Things to Watch" onClick={() => onJump("watch")}>
           <IconAlertTriangle size={16} />
           <span style={{ minWidth: 0, whiteSpace: "nowrap", ...labelStyle }}>Things to Watch</span>
+        </button>
+
+        <button type="button" className="sidebar-link" title="Unknown Fields" onClick={() => onJump("unknown")}>
+          <IconHelpCircle size={16} />
+          <span style={{ minWidth: 0, whiteSpace: "nowrap", ...labelStyle }}>Unknown Fields</span>
         </button>
       </div>
     </aside>

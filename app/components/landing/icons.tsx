@@ -121,19 +121,3 @@ export function IconFile({ size = 15, opacity = 0.6 }: { size?: number; opacity?
     </svg>
   );
 }
-
-export function IconSpinner({ size = 20 }: { size?: number }) {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        border: "2px solid var(--color-divider)",
-        borderTopColor: "var(--color-accent)",
-        animation: "spin 700ms linear infinite",
-      }}
-    />
-  );
-}

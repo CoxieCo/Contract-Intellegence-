@@ -86,7 +86,7 @@ body {
    flash the dark app shell color behind it. Self-clearing: once neither is
    mounted (e.g. the dashboard), this no longer matches and body reverts to
    the dark default above. */
-body:has(.ci-landing, .ci-results) {
+body:has(.ci-landing, .ci-results, .ci-scan) {
   background: #f2f2f3;
 }
 
@@ -260,13 +260,24 @@ button:not(:disabled):active {
     background: #fff;
   }
 
+  /* visibility:hidden (unlike display:none) leaves hidden elements' layout
+     box intact, so the real (often much taller — sidebar, full results
+     view) hidden app tree still drives body's total height and therefore
+     how many pages the browser paginates. max-height:0 + overflow:hidden
+     collapses that footprint to zero so pagination is driven by the print
+     root's own content height instead — without this, the export
+     reliably grew several blank trailing pages past its real content. */
   body * {
     visibility: hidden;
+    max-height: 0;
+    overflow: hidden;
   }
 
   #print-summary-root,
   #print-summary-root * {
     visibility: visible;
+    max-height: none;
+    overflow: visible;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }

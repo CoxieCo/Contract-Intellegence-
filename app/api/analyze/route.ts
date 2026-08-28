@@ -2,9 +2,10 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { createHash } from "crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { PDFParse } from "pdf-parse";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 import { getSessionId } from "@/lib/session";
+import { createUserClient, getAuthenticatedUserId } from "@/lib/supabase-server";
 import { STREAM_CONTRACT_TEXT_DELIMITER } from "@/lib/contract-analysis";
 
 const anthropic = new Anthropic({
@@ -35,6 +36,45 @@ function parseAnalysisJson(text: string): Record<string, unknown> | null {
   }
 }
 
+// How many scans an anonymous visitor gets before they have to sign up. The
+// first one is the demo; everything after it needs an account.
+const FREE_ANONYMOUS_SCANS = 1;
+
+// Machine-readable marker on the 403 below so the client can tell "you've
+// used your free scan, sign up" apart from any other refusal and offer the
+// right next step, without string-matching the human-readable message.
+export const SIGNUP_REQUIRED_CODE = "SIGNUP_REQUIRED";
+
+// Returns true if this anonymous session may run another scan.
+//
+// Counts only rows with user_id IS NULL: once a visitor signs up and claims
+// their scans (see /api/analyses/claim), those rows belong to an account and
+// are no longer what this gate measures.
+//
+// Fails open, for the same reason lib/rateLimit.ts does — a Supabase hiccup
+// should cost a free scan, not take the product down. The real backstop
+// against farming free scans by clearing the cookie is the IP rate limit,
+// not this.
+async function anonymousScanAllowed(sessionId: string | null): Promise<boolean> {
+  if (!sessionId) {
+    console.error("Free-scan gate skipped: no session id on the request");
+    return true;
+  }
+
+  const { count, error } = await supabaseAdmin
+    .from("analyses")
+    .select("id", { count: "exact", head: true })
+    .eq("session_id", sessionId)
+    .is("user_id", null);
+
+  if (error) {
+    console.error("Free-scan gate check failed, allowing through:", error.message);
+    return true;
+  }
+
+  return (count ?? 0) < FREE_ANONYMOUS_SCANS;
+}
+
 export async function POST(req: NextRequest) {
   // Temporary stage timing — see prompt "Diagnose and Fix Analysis Speed".
   // Remove once the 60s slowdown is diagnosed and fixed.
@@ -48,6 +88,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "Too many analysis requests. Please wait a few minutes and try again." },
         { status: 429 }
+      );
+    }
+
+    // Identity is resolved before the body is touched, so a blocked visitor
+    // never pays to upload a 15MB PDF the route is going to refuse anyway.
+    const supabaseUser = await createUserClient();
+    const userId = await getAuthenticatedUserId(supabaseUser);
+    const sessionId = getSessionId(req.headers);
+
+    if (!userId && !(await anonymousScanAllowed(sessionId))) {
+      return NextResponse.json(
+        {
+          error:
+            "You've used your free scan. Sign up for a free account to keep analyzing contracts — your existing scan comes with you.",
+          code: SIGNUP_REQUIRED_CODE,
+        },
+        { status: 403 }
       );
     }
 
@@ -216,7 +273,6 @@ ${pageMarkedText}`,
     const parsedAnalysisPromise = new Promise<Record<string, unknown> | null>((resolve) => {
       resolveParsedAnalysis = resolve;
     });
-    const sessionId = getSessionId(req.headers);
     after(async () => {
       const parsedAnalysis = await parsedAnalysisPromise;
       if (!parsedAnalysis) {
@@ -228,11 +284,24 @@ ${pageMarkedText}`,
       // re-scanning the identical PDF refreshes the existing "Recent
       // contracts" row (new analysis, new created_at) instead of piling up
       // a duplicate entry for the same file.
-      const { error: saveError } = await supabase
+      const { error: saveError } = await supabaseAdmin
         .from("analyses")
         .upsert(
-          { file_name: file.name, analysis: parsedAnalysis, session_id: sessionId, file_hash: fileHash, created_at: new Date().toISOString() },
-          { onConflict: "session_id,file_hash" }
+          {
+            file_name: file.name,
+            analysis: parsedAnalysis,
+            session_id: sessionId,
+            // NULL for an anonymous scan; the row stays claimable until the
+            // visitor signs up. Set explicitly rather than left to a default
+            // so a signed-in scan is owned from the moment it is written.
+            user_id: userId,
+            file_hash: fileHash,
+            created_at: new Date().toISOString(),
+          },
+          // user_id joined the conflict target in migration 0003 — without
+          // it, re-scanning a file after signing out would rewrite the
+          // signed-in row instead of inserting a separate anonymous one.
+          { onConflict: "session_id,file_hash,user_id" }
         );
       console.log(`[timing] Supabase save (background): ${Date.now() - saveStart}ms`);
       if (saveError) {

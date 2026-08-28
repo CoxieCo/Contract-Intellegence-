@@ -7,6 +7,7 @@
 // been analyzed — app/page.tsx swaps this out for the real results view.
 
 import { ChangeEvent, DragEvent, RefObject, useState } from "react";
+import Link from "next/link";
 import "./landing.css";
 import HeroDemo from "./HeroDemo";
 import UploadPanel, { UploadAppState } from "./UploadPanel";
@@ -138,7 +139,9 @@ export default function Landing(props: LandingProps) {
           <a href="#faq">FAQ</a>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button type="button" className="btn btn-ghost">Sign In</button>
+          {/* Static markup until Phase 1's auth data model landed — now that
+              /signin exists, this has to actually go there. */}
+          <Link href="/signin" className="btn btn-ghost">Sign In</Link>
           <button type="button" className="btn btn-primary" onClick={onScanCta}>Scan a Contract</button>
         </div>
       </nav>

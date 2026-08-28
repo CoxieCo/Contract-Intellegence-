@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabaseAdmin } from "./supabase";
 
 // Best-effort IP-based throttle backed by the same Supabase project already
 // used for persistence, rather than pulling in a separate rate-limiting
@@ -62,7 +62,7 @@ export async function checkRateLimit(ip: string, endpoint: RateLimitedEndpoint):
   const windowStart = new Date(Date.now() - rule.windowMinutes * 60_000).toISOString();
 
   const insertResult = await withTimeout(
-    supabase.from("rate_limits").insert({ ip_address: ip, endpoint }),
+    supabaseAdmin.from("rate_limits").insert({ ip_address: ip, endpoint }),
     SUPABASE_TIMEOUT_MS
   );
   if (insertResult === TIMEOUT) {
@@ -75,7 +75,7 @@ export async function checkRateLimit(ip: string, endpoint: RateLimitedEndpoint):
   }
 
   const countResult = await withTimeout(
-    supabase
+    supabaseAdmin
       .from("rate_limits")
       .select("*", { count: "exact", head: true })
       .eq("ip_address", ip)
@@ -97,7 +97,7 @@ export async function checkRateLimit(ip: string, endpoint: RateLimitedEndpoint):
   // job needed for a table this low-volume. Best-effort; failure here
   // doesn't affect the rate-limit decision above.
   if (Math.random() < 0.05) {
-    void supabase
+    void supabaseAdmin
       .from("rate_limits")
       .delete()
       .lt("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CSSProperties, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   ContractAnalysis,
   CURRENT_ANALYSIS_STORAGE_KEY,
@@ -16,6 +16,8 @@ import {
 } from "@/lib/contract-analysis";
 import "../components/results/results.css";
 import CiteTag from "../components/results/CiteTag";
+import AuthStatus from "../components/auth/AuthStatus";
+import ClaimBanner from "../components/auth/ClaimBanner";
 
 interface StoredAnalysis {
   id: string;
@@ -292,29 +294,44 @@ export default function DashboardPage() {
     }
   }, [currentSessionRaw]);
 
-  useEffect(() => {
-    let cancelled = false;
+  // Which rows /api/analyses returns depends on who the request is coming
+  // from, so this is a callback rather than a one-shot mount effect: claiming
+  // previous scans and signing out both change that identity, and the list
+  // already on screen was fetched under the old one.
+  const loadSeq = useRef(0);
+  const loadAnalyses = useCallback(async () => {
+    const seq = ++loadSeq.current;
+    // Ignore a response that a newer request has already superseded — without
+    // this, a slow initial load landing after a fast post-claim reload would
+    // put the pre-claim list back on screen.
+    const isStale = () => seq !== loadSeq.current;
 
-    (async () => {
-      try {
-        const res = await fetch("/api/analyses");
-        const data = await res.json();
-        if (!res.ok) {
-          if (!cancelled) setError(data.error || "Failed to load analyses");
-          return;
-        }
-        if (!cancelled) setAnalyses(Array.isArray(data.analyses) ? data.analyses : []);
-      } catch {
-        if (!cancelled) setError("Couldn't reach the analyses service. Is the dev server running?");
-      } finally {
-        if (!cancelled) setLoading(false);
+    // Every setState below is reached only after an await. `loading` already
+    // starts true for the initial load, and a refetch swaps the list in place
+    // rather than flashing the skeleton back — so there is no synchronous
+    // state update in the effect body that calls this.
+    try {
+      const res = await fetch("/api/analyses");
+      const data = await res.json();
+      if (isStale()) return;
+      if (!res.ok) {
+        setError(data.error || "Failed to load analyses");
+        return;
       }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+      setError("");
+      setAnalyses(Array.isArray(data.analyses) ? data.analyses : []);
+    } catch {
+      if (!isStale()) setError("Couldn't reach the analyses service. Is the dev server running?");
+    } finally {
+      if (!isStale()) setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void (async () => {
+      await loadAnalyses();
+    })();
+  }, [loadAnalyses]);
 
   const totalCount = analyses.length;
   const crossHighCount = useMemo(
@@ -405,6 +422,7 @@ export default function DashboardPage() {
             <Corners />
             New analysis
           </Link>
+          <AuthStatus onSignedOut={loadAnalyses} />
         </div>
       </nav>
 
@@ -425,6 +443,8 @@ export default function DashboardPage() {
               </p>
             </div>
           </div>
+
+          <ClaimBanner onClaimed={loadAnalyses} />
 
           {error && (
             <p role="alert" className="card blueprint" style={{ padding: "12px 16px", borderColor: "var(--color-danger)", fontSize: 14, fontWeight: 500 }}>

@@ -286,10 +286,15 @@ ${pageMarkedText}`,
           {
             file_name: file.name,
             analysis: parsedAnalysis,
-            // The raw extracted text this same analysis was built from —
-            // without it, Ask Your Contract has nothing to answer from the
-            // moment this tab navigates away and back (see migration 0005).
-            contract_text: contractText,
+            // The page-marked text this same analysis was built from — not
+            // the plain contractText: Ask Your Contract's own prompt needs
+            // the same "--- PAGE N ---" headers this route's own prompt uses
+            // to cite a real page number, and without them Ask has nothing
+            // to open a citation's PdfViewer at (see app/api/ask/route.ts).
+            // Without any saved text at all, Ask has nothing to answer from
+            // the moment this tab navigates away and back (see migration
+            // 0005) — pageMarkedText is a strict superset of that need.
+            contract_text: pageMarkedText,
             session_id: sessionId,
             // NULL for an anonymous scan; the row stays claimable until the
             // visitor signs up. Set explicitly rather than left to a default
@@ -346,7 +351,11 @@ ${pageMarkedText}`,
             );
           }
 
-          controller.enqueue(encoder.encode(STREAM_CONTRACT_TEXT_DELIMITER + contractText));
+          // Page-marked, not plain — see the upsert above for why. Never
+          // rendered raw to the user (confirmed: its only consumer is the
+          // /api/ask request body), so the "--- PAGE N ---" headers are
+          // invisible in the product, only meaningful to that route's prompt.
+          controller.enqueue(encoder.encode(STREAM_CONTRACT_TEXT_DELIMITER + pageMarkedText));
           resolveParsedAnalysis(parseAnalysisJson(fullText));
           console.log(`[timing] TOTAL (stream complete): ${Date.now() - requestStart}ms`);
         } catch (error) {

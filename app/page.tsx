@@ -339,6 +339,14 @@ export default function Home() {
     setViewingAsk(false);
   };
 
+  // The conversational history sent back to /api/ask only needs enough plain
+  // text to resolve pronouns ("it", "the other party") in a follow-up
+  // question (see that route's own rule 9) — it never needs the structured
+  // passages/citations a past answer carried, so this is just a flat replay
+  // of what was said, not something rendered anywhere.
+  const flattenAskAnswer = (entry: AskHistoryEntry): string =>
+    [entry.intro, ...entry.passages.map((p) => p.quote)].filter(Boolean).join("\n\n");
+
   const askContract = async (question: string) => {
     const q = question.trim();
     if (!q || askPendingQuestion) return;
@@ -359,7 +367,7 @@ export default function Home() {
 
     // Last few turns only — enough to resolve "what about the other party?"
     // without letting the request grow unbounded as the log gets long.
-    const history = askHistory.slice(-3).map(({ question, answer }) => ({ question, answer }));
+    const history = askHistory.slice(-3).map((entry) => ({ question: entry.question, answer: flattenAskAnswer(entry) }));
 
     try {
       const res = await fetch("/api/ask", {
@@ -374,9 +382,19 @@ export default function Home() {
         return;
       }
 
+      // Light validation, not just a bare cast — a malformed passage (e.g.
+      // missing "quote") would otherwise reach rendering and either crash or
+      // show a citation with nothing behind it.
+      const passages: AskHistoryEntry["passages"] = Array.isArray(data.passages)
+        ? data.passages.filter(
+            (p: unknown): p is AskHistoryEntry["passages"][number] =>
+              !!p && typeof p === "object" && typeof (p as { quote?: unknown }).quote === "string"
+          )
+        : [];
+
       setAskHistory((prev) => [
         ...prev,
-        { question: q, answer: data.answer, section: data.section ?? null, topics: Array.isArray(data.topics) ? data.topics : [] },
+        { question: q, intro: typeof data.intro === "string" ? data.intro : "", passages, section: data.section ?? null },
       ]);
     } catch {
       setAskError("Couldn't reach the AI. Is the dev server running?");
@@ -671,6 +689,7 @@ export default function Home() {
           onAsk={(question) => void askContract(question)}
           onBack={() => setViewingAsk(false)}
           onJumpToSection={jumpFromAsk}
+          onOpenCitation={openCitation}
         />
       )}
 

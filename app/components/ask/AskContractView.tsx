@@ -14,19 +14,25 @@ import { KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from
 import type { ThingToWatch } from "@/lib/contract-analysis";
 import { severityRank } from "@/lib/contract-analysis";
 import type { ResultSectionId } from "../results/ResultsView";
+import type { AskPassage } from "@/app/api/ask/route";
+import CiteTag from "../results/CiteTag";
 import "./ask.css";
 
 export interface AskHistoryEntry {
   question: string;
-  answer: string;
-  // Which section of the analysis the answer is about, per app/api/ask's
-  // "section" classification — null when the model couldn't place it, in
-  // which case the citation chip below the answer just doesn't render.
+  // Brief lead-in prose — can be empty when the answer is just the quote(s)
+  // with nothing to introduce.
+  intro: string;
+  // One entry per clause quoted in the answer, each with its own real
+  // page/section — see app/api/ask/route.ts's "passages" field. Empty when
+  // the contract doesn't address the question at all (intro alone answers
+  // it, nothing to cite).
+  passages: AskPassage[];
+  // Which category of the analysis the answer is about, per app/api/ask's
+  // top-level "section" classification — used only to thread consecutive
+  // same-topic answers together visually (see isSameThread below), not for
+  // citations (each passage carries its own real page/section instead).
   section: ResultSectionId | null;
-  // The subject of each clause quoted in `answer`, per app/api/ask's
-  // "topics" field — empty for a single-quote (or no-quote) answer, which
-  // AnswerText renders in full with no summary/expand step. See AnswerText.
-  topics: string[];
 }
 
 const SECTION_LABELS: Record<ResultSectionId, string> = {
@@ -119,14 +125,37 @@ const expandToggleStyle: React.CSSProperties = {
   gap: 4,
 };
 
-function AnswerParagraphs({ text }: { text: string }) {
-  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+// One quoted clause: an optional short label ("On pricing:") if the model
+// gave it a topic, the verbatim quote itself, and — the actual point of this
+// change — a real citation opening PdfViewer at the exact page it came from,
+// the same as any Field Card's or Things to Watch item's citation. Mirrors
+// FieldCard's own hasCitation condition exactly, right down to only
+// rendering CiteTag when there's a real page or section to show.
+function AnswerPassage({ passage, onOpenCitation }: { passage: AskPassage; onOpenCitation: (page: number, section: string | null) => void }) {
+  const hasCitation = passage.page != null || passage.section != null;
+  return (
+    <div style={{ marginTop: 8 }}>
+      {passage.topic && (
+        <p className="text-muted" style={{ margin: "0 0 2px", fontSize: 12, fontWeight: 600 }}>
+          On {passage.topic}:
+        </p>
+      )}
+      <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55 }}>{passage.quote}</p>
+      {hasCitation && (
+        <span style={{ display: "inline-flex", marginTop: 4 }}>
+          <CiteTag page={passage.page} section={passage.section} onOpen={onOpenCitation} />
+        </span>
+      )}
+    </div>
+  );
+}
+
+function AnswerBody({ intro, passages, onOpenCitation }: { intro: string; passages: AskPassage[]; onOpenCitation: (page: number, section: string | null) => void }) {
   return (
     <>
-      {paragraphs.map((p, i) => (
-        <p key={i} style={{ margin: i === 0 ? 0 : "8px 0 0", fontSize: 14.5, lineHeight: 1.55 }}>
-          {p}
-        </p>
+      {intro && <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55 }}>{intro}</p>}
+      {passages.map((p, i) => (
+        <AnswerPassage key={i} passage={p} onOpenCitation={onOpenCitation} />
       ))}
     </>
   );
@@ -134,23 +163,25 @@ function AnswerParagraphs({ text }: { text: string }) {
 
 // A simple factual question (one quoted clause, or none) renders in full —
 // no expand step, nothing to scan past. An analytical question spanning
-// several clauses (topics.length >= 2, per app/api/ask's "topics" field)
-// instead opens on a short, scannable summary naming what those clauses are
-// about, with the full exhaustive quoted breakdown one click away. This
-// never trims the answer itself — comprehensiveness is the deliberate
-// choice for this feature (see app/api/ask/route.ts's system prompt); only
-// the *default view* is short. The summary is built from "topics" rather
-// than truncating the answer text, because a genuinely useful preview needs
-// to say what's covered ("this touches pricing, liability, termination"),
-// not just show the first clause and cut off mid-list.
-function AnswerText({ text, topics }: { text: string; topics: string[] }) {
+// several clauses (passages.length >= 2) instead opens on a short,
+// scannable summary naming what those clauses are about, with the full
+// exhaustive quoted breakdown — each passage with its own real citation —
+// one click away. This never trims the answer itself — comprehensiveness is
+// the deliberate choice for this feature (see app/api/ask/route.ts's system
+// prompt); only the *default view* is short. The summary is built from each
+// passage's "topic" rather than truncating the answer text, because a
+// genuinely useful preview needs to say what's covered ("this touches
+// pricing, liability, termination"), not just show the first clause and cut
+// off mid-list.
+function AnswerText({ intro, passages, onOpenCitation }: { intro: string; passages: AskPassage[]; onOpenCitation: (page: number, section: string | null) => void }) {
   const [expanded, setExpanded] = useState(false);
 
-  if (topics.length < 2) {
-    return <AnswerParagraphs text={text} />;
+  if (passages.length < 2) {
+    return <AnswerBody intro={intro} passages={passages} onOpenCitation={onOpenCitation} />;
   }
 
   if (!expanded) {
+    const topics = passages.map((p) => p.topic).filter(Boolean);
     return (
       <>
         <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55 }}>This touches {joinTopics(topics)}.</p>
@@ -164,29 +195,12 @@ function AnswerText({ text, topics }: { text: string; topics: string[] }) {
 
   return (
     <>
-      <AnswerParagraphs text={text} />
+      <AnswerBody intro={intro} passages={passages} onOpenCitation={onOpenCitation} />
       <button type="button" onClick={() => setExpanded(false)} style={expandToggleStyle}>
         Show less
         <ChevronIcon rotated={true} />
       </button>
     </>
-  );
-}
-
-function SectionCiteChip({ section, onClick }: { section: ResultSectionId; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="tag tag-outline"
-      style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", background: "none", font: "inherit" }}
-    >
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <path d="M14 2v6h6" />
-      </svg>
-      {SECTION_LABELS[section]}
-    </button>
   );
 }
 
@@ -200,6 +214,11 @@ interface AskContractViewProps {
   onAsk: (question: string) => void;
   onBack: () => void;
   onJumpToSection: (section: ResultSectionId, watchIndex?: number) => void;
+  // Opens PdfViewer at a passage's real page/section — same prop shape as
+  // ResultsView's own onOpenCitation, passed the same openCitation from
+  // app/page.tsx, so an Ask citation behaves identically to every other
+  // citation in the app.
+  onOpenCitation: (page: number, section: string | null) => void;
 }
 
 export default function AskContractView({
@@ -212,6 +231,7 @@ export default function AskContractView({
   onAsk,
   onBack,
   onJumpToSection,
+  onOpenCitation,
 }: AskContractViewProps) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -361,8 +381,7 @@ export default function AskContractView({
                         Contract AI
                       </p>
                       <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-divider)", padding: "10px 13px" }}>
-                        <AnswerText text={entry.answer} topics={entry.topics} />
-                        {entry.section && <SectionCiteChip section={entry.section} onClick={() => onJumpToSection(entry.section as ResultSectionId)} />}
+                        <AnswerText intro={entry.intro} passages={entry.passages} onOpenCitation={onOpenCitation} />
                       </div>
                     </div>
                   </div>

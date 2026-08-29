@@ -50,7 +50,21 @@ const MAX_CONTRACT_TEXT_LENGTH = 500_000;
 const ASK_SECTIONS = ["overview", "dates", "terms", "clauses", "watch", "unknown"] as const;
 type AskSection = (typeof ASK_SECTIONS)[number];
 
-type RawAskResponse = { answer?: string; sourceHint?: string; section?: string; topics?: unknown };
+// One verbatim-quoted clause backing part of the answer, with its own real
+// citation — same shape as SourcedValue elsewhere in this app (page/section
+// pinned to wherever the quote actually appears), so a citation under an Ask
+// answer can open PdfViewer exactly like a Field Card's or a Things to
+// Watch item's citation does. topic is a short (1-3 word) label naming what
+// the clause is about, used to build the "This touches X, Y, and Z" preview
+// for a multi-passage answer — see app/components/ask/AskContractView.tsx.
+export interface AskPassage {
+  topic: string;
+  quote: string;
+  page: number | null;
+  section: string | null;
+}
+
+type RawAskResponse = { intro?: string; passages?: unknown; section?: string };
 
 function stripCodeFence(text: string): string {
   const trimmed = text.trim();
@@ -61,38 +75,56 @@ function stripCodeFence(text: string): string {
     .trim();
 }
 
-function parseAskResponse(text: string): { answer: string; sourceHint: string; section: AskSection | null; topics: string[] } {
+// A malformed passage entry (missing/blank quote) is dropped rather than
+// rendered — a citation with no clause behind it isn't useful, and a
+// missing page/section is a legitimate "couldn't confidently place this"
+// answer (see the prompt's rule 8), not a parse failure.
+function parsePassage(raw: unknown): AskPassage | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.quote !== "string" || !r.quote.trim()) return null;
+  return {
+    topic: typeof r.topic === "string" ? r.topic : "",
+    quote: r.quote,
+    page: typeof r.page === "number" && Number.isFinite(r.page) ? r.page : null,
+    section: typeof r.section === "string" ? r.section : null,
+  };
+}
+
+function parseAskResponse(text: string): { intro: string; passages: AskPassage[]; section: AskSection | null } {
   try {
     let parsed = JSON.parse(stripCodeFence(text)) as RawAskResponse;
-    if (typeof parsed.answer === "string") {
-      // Occasionally (observed with the richer multi-field schema below) the
-      // model nests the entire structured response a second time inside its
-      // own "answer" string — e.g. answer: "```json\n{ \"answer\": ...,
-      // \"topics\": [...] }\n```" — instead of returning those fields at the
-      // top level as asked. If the answer text itself looks like a fenced or
-      // raw JSON object carrying the same shape, unwrap it and use its
-      // fields instead of the outer shell, rather than showing the user a
-      // literal blob of nested JSON as their answer.
-      const innerCandidate = stripCodeFence(parsed.answer);
-      if (innerCandidate.startsWith("{") && innerCandidate.includes('"answer"')) {
+    if (typeof parsed.intro === "string" || Array.isArray(parsed.passages)) {
+      // Occasionally (observed live with an earlier version of this schema,
+      // and plausible again here) the model nests the entire structured
+      // response a second time inside its own "intro" string — e.g.
+      // intro: "```json\n{ \"intro\": ..., \"passages\": [...] }\n```" —
+      // instead of returning those fields at the top level as asked. If the
+      // intro text itself looks like a fenced or raw JSON object carrying
+      // this same shape, unwrap it and use its fields instead of the outer
+      // shell, rather than showing the user a literal blob of nested JSON.
+      const innerCandidate = stripCodeFence(typeof parsed.intro === "string" ? parsed.intro : "");
+      if (innerCandidate.startsWith("{") && innerCandidate.includes('"passages"')) {
         try {
           const inner = JSON.parse(innerCandidate) as RawAskResponse;
-          if (typeof inner.answer === "string") parsed = inner;
+          if (typeof inner.intro === "string" || Array.isArray(inner.passages)) parsed = inner;
         } catch {
-          // Not actually nested JSON — just answer text that happens to
+          // Not actually nested JSON — just intro text that happens to
           // start with a brace. Fall through and use the outer shell as-is.
         }
       }
 
       const section = ASK_SECTIONS.find((s) => s === parsed.section) ?? null;
-      const topics = Array.isArray(parsed.topics) ? parsed.topics.filter((t): t is string => typeof t === "string") : [];
-      return { answer: parsed.answer as string, sourceHint: parsed.sourceHint ?? "", section, topics };
+      const passages = Array.isArray(parsed.passages)
+        ? parsed.passages.map(parsePassage).filter((p): p is AskPassage => p !== null)
+        : [];
+      return { intro: typeof parsed.intro === "string" ? parsed.intro : "", passages, section };
     }
   } catch {
     // fall through to plain-text response
   }
 
-  return { answer: text.trim(), sourceHint: "", section: null, topics: [] };
+  return { intro: text.trim(), passages: [], section: null };
 }
 
 interface HistoryTurn {
@@ -174,17 +206,19 @@ export async function POST(req: NextRequest) {
     const systemPrompt = `You are a contract analysis assistant answering questions about a specific contract. Answer ONLY using the contract text provided below — never invent information, and never rely on outside knowledge of what similar contracts usually say.
 
 Rules — follow all of these exactly:
-1. If the contract does not address the question, say so plainly (e.g. "The contract does not address this.") — do not guess or infer.
-2. Every specific claim about what the contract says or requires must be backed by an exact quote of the clause it comes from — never paraphrase clause language into your own words. This applies just as much to a broad or analytical question (e.g. "what should I negotiate before signing", "what's risky here") as to a direct lookup: if answering it means drawing on several clauses, quote each relevant clause verbatim rather than summarizing what they say — your own words are for brief framing and for connecting the quotes together, never for restating a clause's content.
+1. If the contract does not address the question, say so plainly in "intro" (e.g. "The contract does not address this.") and set "passages" to an empty array — do not guess or infer.
+2. Every specific claim about what the contract says or requires must be backed by an exact quote of the clause it comes from — never paraphrase clause language into your own words. This applies just as much to a broad or analytical question (e.g. "what should I negotiate before signing", "what's risky here") as to a direct lookup: if answering it means drawing on several clauses, add one passage per clause rather than summarizing what they say — "intro" is for brief framing only, never for restating a clause's content.
 3. Do not provide legal advice or legal conclusions of any kind — describe what the contract says, not what it means legally.
-4. Keep your own words to brief framing and transitions only — a short lead-in sentence, and for a multi-clause answer, a few words introducing each quote if it helps (e.g. "On pricing:", "On liability:"). Quote a clause in full rather than trimming it if trimming would change its meaning. Separate multiple quoted passages, or a clause with multiple distinct parts, with a blank line (a "\n\n" in the JSON string) instead of running them together, so a longer or multi-part answer stays readable instead of becoming one dense block.
-5. If you can identify the specific clause or section the answer comes from, set "sourceHint" to a short description of it (e.g. "Section 3, Termination", or for a multi-clause answer, "Section 4, Pricing; Section 9, Liability") — only if it is actually identifiable in the text. Never fabricate a page or section reference that isn't evident in the text. If no source is identifiable, set "sourceHint" to an empty string.
-6. Earlier turns in this conversation, if present, are provided only so you can resolve references like "it" or "the other party" in the current question. They are never a source of contract facts — every fact in your answer must still come from the contract text below, following rules 1-2 exactly as if this were the first question asked.
-7. Set "section" to whichever ONE of these categories the question/answer is primarily about, using the literal id: "overview" (contract identity — parties, contract type, purpose, status), "dates" (start/end/renewal dates, notice periods/deadlines, auto-renewal), "terms" (contract value, payment terms, pricing, price escalation, minimum commitments), "clauses" (termination, liability, governing law, assignment, confidentiality, SLA), "watch" (risk/what to watch out for), or "unknown" (asking what's missing/not found in the contract). If none clearly fits, set "section" to null.
-8. If the answer quotes more than one clause, set "topics" to a short array naming just the subject of each one you quoted, in the same order — 1-3 words each, e.g. ["pricing", "liability cap", "termination rights"]. Name only what the clause is about, never what it says — a topic label is not itself a claim about the contract, so it's exempt from rule 2's quoting requirement, but it must still not characterize or editorialize. If the answer quotes only one clause, or none, set "topics" to an empty array.
+4. Keep "intro" to at most one short lead-in sentence, or an empty string if the quoted passage(s) need no introduction. Each passage's "quote" must be the clause in full and verbatim — never trimmed if trimming would change its meaning, never edited, never merged with another clause.
+5. Set each passage's "topic" to 1-3 words naming just its subject (e.g. "pricing", "liability cap", "termination rights") — what the clause is about, never what it says. A topic label isn't itself a claim about the contract, so it's exempt from rule 2's quoting requirement, but it must not characterize or editorialize either.
+6. The contract text below is divided into pages marked with "--- PAGE N ---" headers. For each passage, set "page" to the exact page number (matching one of those markers) where that quote actually appears. If the same clause is repeated on more than one page, cite the page with its clearest/primary statement.
+7. Set each passage's "section" to the clause or section label EXACTLY as printed in the text (e.g. "Section 7.3", "Clause 13.2") only if the text explicitly labels it that way. Never invent, number, or guess a section label that isn't printed in the source text — if none is printed, use null.
+8. Set a passage's "page" and "section" to the literal JSON value null (never 0, never a guess, never a default to page 1) whenever you cannot confidently identify the specific page a quote came from.
+9. Earlier turns in this conversation, if present, are provided only so you can resolve references like "it" or "the other party" in the current question. They are never a source of contract facts — every fact in your answer must still come from the contract text below, following rules 1-2 exactly as if this were the first question asked.
+10. Set the top-level "section" to whichever ONE of these categories the question/answer is primarily about, using the literal id: "overview" (contract identity — parties, contract type, purpose, status), "dates" (start/end/renewal dates, notice periods/deadlines, auto-renewal), "terms" (contract value, payment terms, pricing, price escalation, minimum commitments), "clauses" (termination, liability, governing law, assignment, confidentiality, SLA), "watch" (risk/what to watch out for), or "unknown" (asking what's missing/not found in the contract). If none clearly fits, set it to null.
 
-Return ONLY valid JSON (no markdown, no code fences, no preamble) matching this exact shape, and this shape only — "answer" is the prose answer text itself; never put another JSON object, code fence, or copy of this same structure inside it:
-{ "answer": "...", "topics": ["..."], "sourceHint": "...", "section": "overview" | "dates" | "terms" | "clauses" | "watch" | "unknown" | null }
+Return ONLY valid JSON (no markdown, no code fences, no preamble) matching this exact shape, and this shape only — "intro" is prose text, never another JSON object, code fence, or copy of this same structure:
+{ "intro": "...", "passages": [ { "topic": "...", "quote": "...", "page": <number|null>, "section": "..."|null } ], "section": "overview" | "dates" | "terms" | "clauses" | "watch" | "unknown" | null }
 
 Contract text:
 ${contractText}`;
@@ -207,7 +241,7 @@ ${contractText}`;
     const responseText =
       message.content[0].type === "text" ? message.content[0].text : "";
 
-    const { answer, sourceHint, section, topics } = parseAskResponse(responseText);
+    const { intro, passages, section } = parseAskResponse(responseText);
 
     // Counted here, not before the Claude call — an anonymous visitor's free
     // questions are spent on answers they actually got, not on attempts that
@@ -223,7 +257,7 @@ ${contractText}`;
       if (usageError) console.error("Failed to record ask usage:", usageError.message);
     }
 
-    return NextResponse.json({ success: true, answer, sourceHint, section, topics });
+    return NextResponse.json({ success: true, intro, passages, section });
   } catch (error) {
     console.error("Ask route error:", error);
     return NextResponse.json(

@@ -1,19 +1,18 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { ChangeEvent, DragEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
 import {
   CURRENT_ANALYSIS_STORAGE_KEY,
   VIEW_REQUEST_STORAGE_KEY,
   STREAM_CONTRACT_TEXT_DELIMITER,
 } from "@/lib/contract-analysis";
 import { clearLiveAnalysisFile, getLiveAnalysisFile, setLiveAnalysisFile } from "@/lib/liveFileSession";
-import Spinner from "./components/Spinner";
-import CiteChip from "./components/CiteChip";
 import ContractSummaryPrint from "./components/ContractSummaryPrint";
 import Landing from "./components/landing/Landing";
 import ScanningView from "./components/scan/ScanningView";
-import ResultsView, { ResultsViewHandle } from "./components/results/ResultsView";
+import ResultsView, { ResultSectionId, ResultsViewHandle } from "./components/results/ResultsView";
+import AskContractView, { AskHistoryEntry } from "./components/ask/AskContractView";
 
 // react-pdf depends on browser-only APIs (Canvas, DOMMatrix, the PDF.js worker) and
 // must never be evaluated during SSR — see react-pdf's Next.js App Router setup notes.
@@ -85,58 +84,8 @@ interface ContractAnalysis {
 }
 
 type AppState = "idle" | "fileSelected" | "analyzing" | "results";
-type TabKey = "overview" | "dates" | "terms" | "clauses" | "watch";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
-
-// ---------- Field label maps ----------
-
-const overviewLabels: Record<keyof ContractOverview, string> = {
-  contractName: "Contract name",
-  contractType: "Contract type",
-  parties: "Parties",
-  status: "Status",
-  purpose: "Purpose",
-};
-
-const datesLabels: Record<keyof ImportantDates, string> = {
-  startDate: "Start date",
-  endDate: "End date",
-  renewalDate: "Renewal date",
-  noticePeriod: "Notice period",
-  noticeDeadline: "Notice deadline",
-  autoRenewal: "Auto-renewal",
-};
-
-const termsLabels: Record<keyof CommercialTerms, string> = {
-  contractValue: "Contract value",
-  currency: "Currency",
-  paymentTerms: "Payment terms",
-  paymentFrequency: "Payment frequency",
-  pricing: "Pricing",
-  priceEscalation: "Price escalation",
-  minimumCommitments: "Minimum commitments",
-  latePaymentTerms: "Late-payment terms",
-};
-
-const clausesLabels: Record<keyof KeyClauses, string> = {
-  termination: "Termination",
-  earlyTermination: "Early termination",
-  liability: "Liability",
-  liabilityCap: "Liability cap",
-  governingLaw: "Governing law",
-  assignment: "Assignment",
-  changeOfControl: "Change of control",
-  ndaConfidentiality: "NDA / confidentiality",
-  dataComplianceObligations: "Data / compliance obligations",
-  slaCommitments: "SLA commitments",
-};
-
-const PALETTE_SUGGESTIONS = [
-  "Show termination clause",
-  "Show all dates",
-  "Show high-severity items",
-];
 
 // ---------- Helpers ----------
 
@@ -255,104 +204,11 @@ function parsePartialAnalysis(text: string): Partial<ContractAnalysis> {
   return partial;
 }
 
-// ---------- Command palette search ----------
-
-interface SearchItem {
-  tab: TabKey;
-  key: string;
-  label: string;
-  watchIndex?: number;
-}
-
-function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function buildSearchIndex(analysis: ContractAnalysis): SearchItem[] {
-  const items: SearchItem[] = [];
-
-  if (analysis.contractOverview) {
-    (Object.keys(overviewLabels) as (keyof ContractOverview)[]).forEach((key) =>
-      items.push({ tab: "overview", key, label: overviewLabels[key] })
-    );
-  }
-  if (analysis.importantDates) {
-    (Object.keys(datesLabels) as (keyof ImportantDates)[]).forEach((key) =>
-      items.push({ tab: "dates", key, label: datesLabels[key] })
-    );
-  }
-  if (analysis.commercialTerms) {
-    (Object.keys(termsLabels) as (keyof CommercialTerms)[]).forEach((key) =>
-      items.push({ tab: "terms", key, label: termsLabels[key] })
-    );
-  }
-  if (analysis.keyClauses) {
-    (Object.keys(clausesLabels) as (keyof KeyClauses)[]).forEach((key) =>
-      items.push({ tab: "clauses", key, label: clausesLabels[key] })
-    );
-  }
-  analysis.thingsToWatch?.forEach((w, i) => {
-    items.push({ tab: "watch", key: `watch-${i}`, label: w.title, watchIndex: i });
-  });
-
-  return items;
-}
-
-function findBestMatch(rawQuery: string, items: SearchItem[]): SearchItem | null {
-  const query = normalize(rawQuery);
-  if (!query) return null;
-
-  let best: SearchItem | null = null;
-  let bestScore = 0;
-  let bestLabelLen = 0;
-
-  for (const item of items) {
-    const label = normalize(item.label);
-    let score = 0;
-
-    if (label === query) score = 100;
-    else if (label.length >= 3 && query.includes(label)) score = 80;
-    else if (query.length >= 3 && label.includes(query)) score = 60;
-    else {
-      // Require at least two shared distinctive words — a single overlapping
-      // word (e.g. "price" inside a long free-form question) is too weak a
-      // signal and should fall through to the AI instead of a wrong field jump.
-      const queryWords = query.split(" ").filter((w) => w.length > 2);
-      const labelWords = label.split(" ").filter((w) => w.length > 2);
-      const common = queryWords.filter((w) => labelWords.includes(w));
-      if (common.length >= 2) score = common.length * 20;
-    }
-
-    const better =
-      score > bestScore || (score === bestScore && score > 0 && label.length > bestLabelLen);
-
-    if (better) {
-      bestScore = score;
-      bestLabelLen = label.length;
-      best = item;
-    }
-  }
-
-  return bestScore >= 20 ? best : null;
-}
-
-// ---------- Icons ----------
-
-function SearchIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted">
-      <circle cx="11" cy="11" r="7" />
-      <path d="M21 21l-4.3-4.3" />
-    </svg>
-  );
-}
-
 // ---------- Main page ----------
 
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadSectionRef = useRef<HTMLDivElement>(null);
-  const paletteInputRef = useRef<HTMLInputElement>(null);
   const resultsViewRef = useRef<ResultsViewHandle>(null);
 
   const [appState, setAppState] = useState<AppState>("idle");
@@ -384,15 +240,20 @@ export default function Home() {
   // date rather than the date it originally ran.
   const [analyzedAt, setAnalyzedAt] = useState<Date | null>(null);
 
-  // The conversation log lives here regardless of entry point (Cmd+K or the
-  // "Ask AI" button) — both open the same docked palette/panel.
-  const [askHistory, setAskHistory] = useState<{ question: string; answer: string; sourceHint?: string }[]>([]);
-  const [askLoading, setAskLoading] = useState(false);
+  // The Ask Your Contract page's conversation log — reset on every new scan.
+  const [askHistory, setAskHistory] = useState<AskHistoryEntry[]>([]);
+  const [askPendingQuestion, setAskPendingQuestion] = useState<string | null>(null);
   const [askError, setAskError] = useState("");
 
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [paletteRendered, setPaletteRendered] = useState(false);
-  const [paletteQuery, setPaletteQuery] = useState("");
+  // Whether the Ask Your Contract page is showing instead of ResultsView
+  // (both stay mounted the whole time — see the render below — so jumping
+  // from a citation or a recommendation back into a specific section always
+  // has a live ResultsViewHandle to call, with no mount-order race). askSection
+  // tracks "what was the user last looking at" — set on every jumpTo (sidebar
+  // click, citation, recommendation) — and drives the Ask page's default
+  // "Viewing: X" context and its suggested questions.
+  const [viewingAsk, setViewingAsk] = useState(false);
+  const [askSection, setAskSection] = useState<ResultSectionId>("overview");
 
   const [viewerCitation, setViewerCitation] = useState<{ page: number; section: string | null } | null>(null);
 
@@ -456,59 +317,23 @@ export default function Home() {
     });
   }, []);
 
-  // ----- Global keyboard shortcut (Cmd+K / Ctrl+K, Escape) -----
+  // ----- Ask Your Contract -----
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setPaletteQuery("");
-        setPaletteOpen(true);
-        setPaletteRendered(true);
-      } else if (e.key === "Escape") {
-        setPaletteOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  useEffect(() => {
-    if (!paletteOpen) return;
-    const id = requestAnimationFrame(() => paletteInputRef.current?.focus());
-    return () => cancelAnimationFrame(id);
-  }, [paletteOpen]);
-
-  // Keep the palette mounted for the exit animation (150ms) instead of
-  // unmounting the instant it closes. Opening sets paletteRendered(true)
-  // directly at each call site so this effect only ever needs to handle
-  // the delayed close.
-  useEffect(() => {
-    if (paletteOpen) return;
-    const timeout = setTimeout(() => setPaletteRendered(false), 150);
-    return () => clearTimeout(timeout);
-  }, [paletteOpen]);
-
-  // ----- Command palette -----
-
-  // Jumping to a field opens its section, scrolls to it and flashes a
-  // highlight — all owned by ResultsView itself (it remounts fresh each
-  // time a results view is entered, so there's no state to reset here).
-  const jumpToField = (tab: TabKey, opts?: { highlightKey?: string; watchIndex?: number }) => {
-    resultsViewRef.current?.jumpTo(tab, { fieldKey: opts?.highlightKey, watchIndex: opts?.watchIndex });
-    setPaletteOpen(false);
-    setPaletteQuery("");
+  // Both ResultsView and AskContractView stay mounted the whole time (see the
+  // render below, which toggles visibility rather than conditionally
+  // rendering) — so jumping from a citation or a recommendation always has a
+  // live resultsViewRef to call, regardless of which one is currently shown.
+  const jumpFromAsk = (section: ResultSectionId, watchIndex?: number) => {
+    resultsViewRef.current?.jumpTo(section, { watchIndex });
+    setViewingAsk(false);
   };
 
-  // Shared by both the palette's free-text fallback and any other entry
-  // point into the ask panel — there's only one conversation now.
   const askContract = async (question: string) => {
     const q = question.trim();
-    if (!q || !contractText || askLoading) return;
+    if (!q || !contractText || askPendingQuestion) return;
 
-    setAskLoading(true);
+    setAskPendingQuestion(q);
     setAskError("");
-    setPaletteQuery("");
 
     // Last few turns only — enough to resolve "what about the other party?"
     // without letting the request grow unbounded as the log gets long.
@@ -527,68 +352,12 @@ export default function Home() {
         return;
       }
 
-      setAskHistory((prev) => [...prev, { question: q, answer: data.answer, sourceHint: data.sourceHint }]);
+      setAskHistory((prev) => [...prev, { question: q, answer: data.answer, section: data.section ?? null }]);
     } catch {
       setAskError("Couldn't reach the AI. Is the dev server running?");
     } finally {
-      setAskLoading(false);
+      setAskPendingQuestion(null);
     }
-  };
-
-  // Same lookup runPaletteQuery uses at submit time, run on every keystroke so
-  // the palette can show what Enter will do before it's pressed.
-  const paletteMatch =
-    analysis && paletteQuery.trim() ? findBestMatch(paletteQuery, buildSearchIndex(analysis)) : null;
-
-  const runPaletteQuery = (rawQuery: string) => {
-    setPaletteQuery(rawQuery);
-    const query = normalize(rawQuery);
-    if (!analysis || !query) return;
-
-    const match = findBestMatch(rawQuery, buildSearchIndex(analysis));
-    if (match) {
-      jumpToField(match.tab, {
-        highlightKey: match.watchIndex === undefined ? match.key : undefined,
-        watchIndex: match.watchIndex,
-      });
-      return;
-    }
-
-    if (query.includes("severity") || query.includes("risky") || query.includes("risk")) {
-      jumpToField("watch");
-      return;
-    }
-    if (query.includes("date")) {
-      jumpToField("dates");
-      return;
-    }
-    if (query.includes("overview")) {
-      jumpToField("overview");
-      return;
-    }
-    if (
-      query.includes("terms") ||
-      query.includes("commercial") ||
-      query.includes("payment") ||
-      query.includes("pricing")
-    ) {
-      jumpToField("terms");
-      return;
-    }
-    if (query.includes("clause")) {
-      jumpToField("clauses");
-      return;
-    }
-    if (query.includes("watch")) {
-      jumpToField("watch");
-      return;
-    }
-
-    void askContract(rawQuery);
-  };
-
-  const handlePaletteKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") runPaletteQuery(paletteQuery);
   };
 
   // ----- File selection -----
@@ -664,6 +433,9 @@ export default function Home() {
     setViewerCitation(null);
     setAskHistory([]);
     setAskError("");
+    setAskPendingQuestion(null);
+    setViewingAsk(false);
+    setAskSection("overview");
     sessionStorage.removeItem(CURRENT_ANALYSIS_STORAGE_KEY);
     setArchivedFileName(null);
     setAnalyzedAt(null);
@@ -683,6 +455,9 @@ export default function Home() {
     setViewerCitation(null);
     setAskHistory([]);
     setAskError("");
+    setAskPendingQuestion(null);
+    setViewingAsk(false);
+    setAskSection("overview");
     setAppState("results");
   };
 
@@ -836,136 +611,42 @@ export default function Home() {
       )}
 
       {/* Results view — same light "Industry" theme as Landing, imported from
-          Results.dc.html. Owns its own nav/sidebar; no dark chrome around it. */}
+          Results.dc.html. Owns its own nav/sidebar; no dark chrome around it.
+          Stays mounted (visibility toggled, not conditionally rendered)
+          whenever the Ask Your Contract page is showing instead, so its
+          sidebar/section state survives the round trip and resultsViewRef
+          is always safe to call from AskContractView's citations. */}
       {appState === "results" && analysis && (
-        <ResultsView
-          ref={resultsViewRef}
-          analysis={analysis}
-          fileName={selectedFile ? selectedFile.name : (archivedFileName ?? "Contract")}
-          analyzedAt={analyzedAt}
-          onOpenCitation={openCitation}
-          onExportPdf={handleExportPdf}
-        />
+        <div style={{ display: viewingAsk ? "none" : "block" }}>
+          <ResultsView
+            ref={resultsViewRef}
+            analysis={analysis}
+            fileName={selectedFile ? selectedFile.name : (archivedFileName ?? "Contract")}
+            analyzedAt={analyzedAt}
+            onOpenCitation={openCitation}
+            onExportPdf={handleExportPdf}
+            onAskContract={() => setViewingAsk(true)}
+            onSectionChange={(section) => setAskSection(section)}
+          />
+        </div>
       )}
 
-
-      {/* Persistent AI affordance — quiet, corner-anchored, present on every screen */}
-      <button
-        type="button"
-        onClick={() => {
-          setPaletteQuery("");
-          setPaletteOpen(true);
-          setPaletteRendered(true);
-        }}
-        className="fixed bottom-5 right-5 z-40 flex items-center gap-1.5 rounded-full border border-hairline bg-surface/90 px-3.5 py-2 text-xs font-medium text-muted shadow-panel backdrop-blur-md transition-colors duration-200 hover:border-hairline-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-      >
-        <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-        Ask AI
-        <span className="ml-0.5 rounded border border-hairline-strong px-1 py-0.5 text-[10px] leading-none text-muted">⌘K</span>
-      </button>
-
-      {/* Command palette */}
-      {paletteRendered && (
-        <div
-          role="presentation"
-          onClick={() => setPaletteOpen(false)}
-          className={`fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-[12vh] backdrop-blur-sm ${
-            paletteOpen ? "animate-backdrop-in" : "animate-backdrop-out"
-          }`}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Command palette"
-            onClick={(e) => e.stopPropagation()}
-            className={`w-full max-w-lg overflow-hidden rounded-md border border-hairline bg-surface shadow-panel ${
-              paletteOpen ? "animate-palette-in" : "animate-palette-out"
-            }`}
-          >
-            <div className="flex items-center gap-2.5 border-b border-hairline px-4 py-3">
-              <SearchIcon />
-              <input
-                ref={paletteInputRef}
-                type="text"
-                value={paletteQuery}
-                onChange={(e) => setPaletteQuery(e.target.value)}
-                onKeyDown={handlePaletteKeyDown}
-                placeholder={analysis ? 'Search fields, or ask a question…' : "Upload a contract to get started"}
-                disabled={!analysis}
-                className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none disabled:cursor-not-allowed"
-              />
-              {analysis && paletteQuery.trim() !== "" && (
-                <span
-                  className={`shrink-0 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-medium ${
-                    paletteMatch
-                      ? "border-accent/40 bg-accent/10 text-[#c9d3ff]"
-                      : "border-hairline bg-surface-raised text-muted"
-                  }`}
-                >
-                  {paletteMatch ? `↵ Jump to ${paletteMatch.label}` : "↵ Ask AI"}
-                </span>
-              )}
-              <kbd className="rounded border border-hairline-strong px-1.5 py-0.5 text-[10px] text-muted">Esc</kbd>
-            </div>
-
-            <div className="max-h-96 overflow-y-auto px-2 py-2">
-              {!analysis ? (
-                <p className="px-2.5 py-3 text-sm text-muted">Upload a contract to get started.</p>
-              ) : (
-                <>
-                  {paletteQuery.trim() === "" && askHistory.length === 0 && (
-                    <>
-                      <p className="px-2.5 pb-1.5 pt-1 text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                        Suggested
-                      </p>
-                      {PALETTE_SUGGESTIONS.map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => runPaletteQuery(s)}
-                          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors duration-200 hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                        >
-                          <SearchIcon />
-                          {s}
-                        </button>
-                      ))}
-                    </>
-                  )}
-
-                  {/* Annotated log tied to the document — question, short answer,
-                      citation chip. Not a chat transcript: no avatars, no bubbles. */}
-                  {askHistory.length > 0 && (
-                    <div className="space-y-2 px-1 py-1">
-                      {askHistory.map((entry, i) => (
-                        <div key={i} className="rounded-md border border-hairline bg-background/40 p-3">
-                          <p className="text-[13px] font-medium text-muted">{entry.question}</p>
-                          <p className="mt-1 text-sm leading-5 text-foreground">{entry.answer}</p>
-                          <div className="mt-1.5">
-                            <CiteChip actionable={false} label={entry.sourceHint || "No specific clause identified"} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {askLoading && (
-                    <div className="flex items-center gap-2 px-2.5 py-3 text-sm text-muted">
-                      <Spinner />
-                      Thinking…
-                    </div>
-                  )}
-
-                  {askError && (
-                    <p role="alert" className="px-2.5 py-2 text-sm font-medium text-severity-high">
-                      {askError}
-                    </p>
-                  )}
-
-                </>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* Ask Your Contract — full-screen page imported from the same-named
+          design, replacing the old Cmd+K command palette entirely (its
+          deterministic "jump to a field" search is already covered by the
+          results sidebar). */}
+      {appState === "results" && analysis && viewingAsk && (
+        <AskContractView
+          fileName={selectedFile ? selectedFile.name : (archivedFileName ?? "Contract")}
+          section={askSection}
+          thingsToWatch={analysis.thingsToWatch ?? []}
+          history={askHistory}
+          pendingQuestion={askPendingQuestion}
+          error={askError}
+          onAsk={(question) => void askContract(question)}
+          onBack={() => setViewingAsk(false)}
+          onJumpToSection={jumpFromAsk}
+        />
       )}
 
       {/* Source PDF viewer — opened by a citation button that has a real page number */}

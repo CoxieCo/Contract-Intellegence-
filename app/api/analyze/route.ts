@@ -7,6 +7,7 @@ import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 import { getSessionId } from "@/lib/session";
 import { createUserClient, getAuthenticatedUserId } from "@/lib/supabase-server";
 import { STREAM_CONTRACT_TEXT_DELIMITER } from "@/lib/contract-analysis";
+import { SIGNUP_REQUIRED_CODE } from "@/lib/freeTier";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -39,11 +40,6 @@ function parseAnalysisJson(text: string): Record<string, unknown> | null {
 // How many scans an anonymous visitor gets before they have to sign up. The
 // first one is the demo; everything after it needs an account.
 const FREE_ANONYMOUS_SCANS = 1;
-
-// Machine-readable marker on the 403 below so the client can tell "you've
-// used your free scan, sign up" apart from any other refusal and offer the
-// right next step, without string-matching the human-readable message.
-export const SIGNUP_REQUIRED_CODE = "SIGNUP_REQUIRED";
 
 // Returns true if this anonymous session may run another scan.
 //

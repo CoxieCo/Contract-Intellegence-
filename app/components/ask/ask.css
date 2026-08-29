@@ -1,0 +1,242 @@
+/* Scoped design tokens for the Ask Your Contract page — same "Industry"
+   design system as app/components/landing, results and scan,
+   self-contained under .ci-ask so it never leaks into the dark app shell.
+   Duplicated rather than shared, matching how those screens are already
+   kept isolated from each other. */
+
+.ci-ask {
+  --color-bg: #f2f2f3;
+  --color-surface: #e9e9ea;
+  --color-text: #1d1f20;
+  --color-accent: #5980a6;
+  --color-divider: color-mix(in srgb, #1d1f20 16%, transparent);
+
+  --color-neutral-100: #f5f5f8;
+  --color-neutral-800: #424244;
+
+  --color-accent-100: #eef6ff;
+  --color-accent-600: #597ea3;
+  --color-accent-700: #416180;
+  --color-accent-800: #2c455d;
+
+  --color-danger: #b3261e;
+
+  --font-heading: var(--font-barlow-condensed), system-ui, sans-serif;
+  --font-heading-weight: 600;
+  --font-body: var(--font-barlow), system-ui, sans-serif;
+
+  color-scheme: light;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
+}
+
+.ci-ask *,
+.ci-ask *::before,
+.ci-ask *::after {
+  box-sizing: border-box;
+}
+
+.ci-ask h1,
+.ci-ask h2,
+.ci-ask h3,
+.ci-ask h4 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  margin: 0;
+}
+
+.ci-ask p {
+  margin: 0;
+}
+
+.ci-ask :focus {
+  outline: none;
+}
+.ci-ask :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.ci-ask .text-muted {
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+.ci-ask .card-kicker {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  margin: 0;
+}
+
+/* — blueprint frame — */
+.ci-ask .blueprint {
+  position: relative;
+  border: 1px solid var(--color-divider);
+}
+.ci-ask .blueprint > .corner {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+.ci-ask .blueprint > .corner::before,
+.ci-ask .blueprint > .corner::after {
+  content: "";
+  position: absolute;
+  background: currentColor;
+}
+.ci-ask .blueprint > .corner::before {
+  left: 5px;
+  top: 0;
+  width: 1px;
+  height: 100%;
+}
+.ci-ask .blueprint > .corner::after {
+  top: 5px;
+  left: 0;
+  width: 100%;
+  height: 1px;
+}
+.ci-ask .blueprint > .corner.tl {
+  top: -6px;
+  left: -6px;
+}
+.ci-ask .blueprint > .corner.tr {
+  top: -6px;
+  right: -6px;
+}
+.ci-ask .blueprint > .corner.bl {
+  bottom: -6px;
+  left: -6px;
+}
+.ci-ask .blueprint > .corner.br {
+  bottom: -6px;
+  right: -6px;
+}
+
+/* — buttons — */
+.ci-ask .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid var(--color-divider);
+  padding: 6.8px 12.24px;
+  transition-property: color, background-color, border-color, box-shadow, transform;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+.ci-ask .btn-primary {
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border-color: var(--color-accent);
+}
+.ci-ask .btn-primary:hover {
+  background: var(--color-accent-600);
+}
+.ci-ask .btn-primary:active {
+  background: var(--color-accent-700);
+}
+.ci-ask .btn-secondary:hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+
+/* — tags — */
+.ci-ask .tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: 3px 10px;
+  font: inherit;
+  white-space: nowrap;
+}
+.ci-ask .tag-outline {
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+}
+.ci-ask .tag-accent {
+  background: var(--color-accent-100);
+  color: var(--color-accent-800);
+  border: 1px solid transparent;
+}
+.ci-ask .tag-neutral {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-800);
+  border: 1px solid transparent;
+}
+
+/* — input — */
+.ci-ask .input {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  font: inherit;
+  color: var(--color-text);
+  caret-color: var(--color-accent);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+}
+.ci-ask .input:hover {
+  border-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+.ci-ask .input:focus-visible {
+  border-color: var(--color-accent);
+  outline-offset: 0;
+}
+
+/* — nav — */
+.ci-ask .nav {
+  display: flex;
+  align-items: center;
+  gap: 13.6px;
+  padding: 10.2px 13.6px;
+  flex: none;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--color-bg);
+}
+.ci-ask .nav-brand {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 18px;
+}
+
+/* — Q&A entry reveal + "Thinking…" spinner — */
+@keyframes ci-ask-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ci-ask-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ci-ask .ci-ask-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--color-divider);
+  border-top-color: var(--color-accent-700);
+  animation: ci-ask-spin 700ms linear infinite;
+}

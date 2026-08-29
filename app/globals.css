@@ -86,7 +86,7 @@ body {
    flash the dark app shell color behind it. Self-clearing: once neither is
    mounted (e.g. the dashboard), this no longer matches and body reverts to
    the dark default above. */
-body:has(.ci-landing, .ci-results, .ci-scan) {
+body:has(.ci-landing, .ci-results, .ci-scan, .ci-ask) {
   background: #f2f2f3;
 }
 

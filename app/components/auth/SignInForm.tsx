@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase-browser";
+import GoogleSignInButton from "./GoogleSignInButton";
 
 // PLACEHOLDER UI. Phase 1 is the data model and access control; this exists
 // only so the auth plumbing underneath it can actually be exercised and
@@ -143,9 +144,20 @@ export default function SignInForm({ initialError }: { initialError?: string }) 
         </button>
       </form>
 
-      <button type="button" className="btn btn-secondary" onClick={handleGoogle} disabled={busy}>
-        Continue with Google
-      </button>
+      {/* Its own section, set apart from the form above — a labeled divider
+          rather than just another item in the button stack, per Google's own
+          "at least as prominent as other sign-in options" guideline and
+          simple visual clarity between a typed-credentials flow and an
+          identity-provider one. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ flex: 1, height: 1, background: "var(--color-divider)" }} />
+        <span className="text-muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          Or
+        </span>
+        <span style={{ flex: 1, height: 1, background: "var(--color-divider)" }} />
+      </div>
+
+      <GoogleSignInButton onClick={handleGoogle} disabled={busy} />
 
       <button
         type="button"

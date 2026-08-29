@@ -6,9 +6,9 @@
 // generic field cards. Same "Industry" light theme as app/components/
 // landing, imported from the same Results.dc.html design and scoped under
 // .ci-results so it never leaks into the dark app shell (dashboard, PDF
-// viewer, Ask AI palette stay exactly as they are). "Not found" fields never
-// appear in the four content sections or the At a Glance cards — they're all
-// consolidated into the Unknown Fields section instead (see allMissing).
+// viewer stay exactly as they are). "Not found" fields never appear in the
+// four content sections or the At a Glance cards — they're all consolidated
+// into the Unknown Fields section instead (see allMissing).
 
 import Link from "next/link";
 import { forwardRef, ReactNode, useImperativeHandle, useRef, useState } from "react";
@@ -40,6 +40,11 @@ interface ResultsViewProps {
   analyzedAt: Date | null;
   onOpenCitation: (page: number, section: string | null) => void;
   onExportPdf: () => void;
+  onAskContract: () => void;
+  // Fires whenever jumpTo lands on a section (sidebar click, a citation, or
+  // an external jumpTo call) — lets the parent track "what was the user last
+  // looking at" for the Ask Your Contract page's default context/suggestions.
+  onSectionChange?: (section: ResultSectionId, fieldKey?: string) => void;
 }
 
 const overviewLabels: Record<keyof ContractOverview, string> = {
@@ -180,7 +185,7 @@ function MissingFieldCard({ label, category }: { label: string; category: string
 }
 
 const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function ResultsView(
-  { analysis, fileName, analyzedAt, onOpenCitation, onExportPdf },
+  { analysis, fileName, analyzedAt, onOpenCitation, onExportPdf, onAskContract, onSectionChange },
   ref
 ) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -206,6 +211,7 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
 
   const jumpTo: ResultsViewHandle["jumpTo"] = (section, opts) => {
     setOpenSections((s) => ({ ...s, [section]: true }));
+    onSectionChange?.(section, opts?.fieldKey);
     const key = opts?.watchIndex !== undefined ? `watch.${opts.watchIndex}` : opts?.fieldKey ? `${section}.${opts.fieldKey}` : `section.${section}`;
     clearTimeout(highlightTimeout.current);
     setTimeout(() => {
@@ -332,9 +338,11 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
                   <i className="corner br" />
                   Dashboard
                 </Link>
-                <span className="tag tag-outline">Analyzed</span>
                 <button type="button" className="btn btn-secondary" onClick={onExportPdf}>
                   Export Analysis
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={onAskContract}>
+                  Ask your contract
                 </button>
               </div>
             </div>

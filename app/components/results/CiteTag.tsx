@@ -1,9 +1,8 @@
 "use client";
 
-// Light-themed citation tag — same behavior as app/components/CiteChip.tsx
-// (label formatting, "coming soon" tooltip when no page is known, click to
-// open the PDF viewer) but styled for the results view's blueprint theme
-// instead of the dark app shell.
+// Citation tag — label formatting, a "coming soon" tooltip when no page is
+// known yet, click to open the PDF viewer — styled for the results view's
+// light blueprint theme.
 
 import { useEffect, useState } from "react";
 import { IconCiteGlyph } from "./icons";

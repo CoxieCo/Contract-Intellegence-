@@ -280,9 +280,9 @@ export default function Home() {
     }
     if (!raw) return;
 
-    let request: { fileName: string; analysis: ContractAnalysis } | null = null;
+    let request: { fileName: string; analysis: ContractAnalysis; contractText?: string } | null = null;
     try {
-      const parsed = JSON.parse(raw) as { fileName: string; analysis: ContractAnalysis };
+      const parsed = JSON.parse(raw) as { fileName: string; analysis: ContractAnalysis; contractText?: string };
       if (parsed?.analysis) request = parsed;
     } catch {
       // Malformed handoff payload — fall through to the normal idle screen.
@@ -296,7 +296,12 @@ export default function Home() {
     queueMicrotask(() => {
       setAnalysis(hydrate.analysis);
       setArchivedFileName(hydrate.fileName);
-      setContractText("");
+      // Restored from the handoff payload when the dashboard had it to give
+      // (see app/dashboard/page.tsx's viewContract) — previously always reset
+      // to "", which is why Ask Your Contract went silently dead the instant
+      // a contract was reopened from the dashboard: no persisted text meant
+      // no request ever fired, with nothing telling the user why.
+      setContractText(hydrate.contractText ?? "");
       setAnalyzedAt(new Date());
       setAppState("results");
 
@@ -310,7 +315,13 @@ export default function Home() {
       if (liveFile) setSelectedFile(liveFile);
 
       try {
-        sessionStorage.setItem(CURRENT_ANALYSIS_STORAGE_KEY, JSON.stringify({ fileName: hydrate.fileName, analysis: hydrate.analysis }));
+        sessionStorage.setItem(
+          CURRENT_ANALYSIS_STORAGE_KEY,
+          // contractText carried forward too — otherwise a second hop
+          // (dashboard -> results -> dashboard -> results again) would lose
+          // it right back, since this is what "Back to Analysis" reads from.
+          JSON.stringify({ fileName: hydrate.fileName, analysis: hydrate.analysis, contractText: hydrate.contractText ?? "" })
+        );
       } catch {
         // Non-critical — only affects whether the dashboard's "currently open" card picks this up.
       }
@@ -330,7 +341,18 @@ export default function Home() {
 
   const askContract = async (question: string) => {
     const q = question.trim();
-    if (!q || !contractText || askPendingQuestion) return;
+    if (!q || askPendingQuestion) return;
+
+    // Only ever empty for a genuinely legacy row saved before migration 0005
+    // added contract_text (every scan since persists it, and it survives a
+    // dashboard round trip — see the VIEW_REQUEST_STORAGE_KEY hydration
+    // above). Surfaced instead of silently doing nothing, which is what made
+    // this look like Ask was simply broken rather than unavailable for one
+    // specific old contract.
+    if (!contractText) {
+      setAskError("This contract's text wasn't saved (it predates Ask Your Contract's current version) — re-scan the PDF to ask questions about it.");
+      return;
+    }
 
     setAskPendingQuestion(q);
     setAskError("");
@@ -549,7 +571,7 @@ export default function Home() {
       try {
         sessionStorage.setItem(
           CURRENT_ANALYSIS_STORAGE_KEY,
-          JSON.stringify({ fileName: selectedFile.name, analysis: parsed })
+          JSON.stringify({ fileName: selectedFile.name, analysis: parsed, contractText: finalContractText })
         );
       } catch {
         // Session storage can fail (private browsing, quota) — the dashboard's

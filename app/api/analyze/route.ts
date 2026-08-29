@@ -286,6 +286,10 @@ ${pageMarkedText}`,
           {
             file_name: file.name,
             analysis: parsedAnalysis,
+            // The raw extracted text this same analysis was built from —
+            // without it, Ask Your Contract has nothing to answer from the
+            // moment this tab navigates away and back (see migration 0005).
+            contract_text: contractText,
             session_id: sessionId,
             // NULL for an anonymous scan; the row stays claimable until the
             // visitor signs up. Set explicitly rather than left to a default

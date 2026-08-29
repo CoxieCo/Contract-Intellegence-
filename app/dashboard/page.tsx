@@ -24,6 +24,8 @@ interface StoredAnalysis {
   created_at: string;
   file_name: string;
   analysis: ContractAnalysis;
+  // null for any row saved before migration 0005 added this column.
+  contract_text: string | null;
 }
 
 // ---------- Severity treatment — danger/warning tokens, per the Dashboard.dc.html design ----------
@@ -371,12 +373,12 @@ export default function DashboardPage() {
   // Contracts tile (defaulting as above), falling back to the live session's
   // contract directly if it hasn't shown up in `analyses` yet — the same
   // "open" target both "View full analysis" and "Export" act on.
-  const openTarget: { fileName: string; analysis: ContractAnalysis } | null = selectedRow
-    ? { fileName: selectedRow.file_name, analysis: selectedRow.analysis }
+  const openTarget: { fileName: string; analysis: ContractAnalysis; contractText: string } | null = selectedRow
+    ? { fileName: selectedRow.file_name, analysis: selectedRow.analysis, contractText: selectedRow.contract_text ?? "" }
     : currentSession
-    ? { fileName: currentSession.fileName, analysis: currentSession.analysis }
+    ? { fileName: currentSession.fileName, analysis: currentSession.analysis, contractText: currentSession.contractText ?? "" }
     : analyses[0]
-    ? { fileName: analyses[0].file_name, analysis: analyses[0].analysis }
+    ? { fileName: analyses[0].file_name, analysis: analyses[0].analysis, contractText: analyses[0].contract_text ?? "" }
     : null;
   const openHeadline = openTarget ? pickHeadlineField(openTarget.analysis) : null;
   const openValue = openTarget?.analysis.commercialTerms?.contractValue?.value;
@@ -391,9 +393,9 @@ export default function DashboardPage() {
   // Handoff to the homepage, which restores this into the exact same
   // results-zone experience a fresh analysis gets — not a stripped-down
   // dashboard-only view.
-  const viewContract = (fileName: string, analysis: ContractAnalysis) => {
+  const viewContract = (fileName: string, analysis: ContractAnalysis, contractText: string) => {
     try {
-      sessionStorage.setItem(VIEW_REQUEST_STORAGE_KEY, JSON.stringify({ fileName, analysis }));
+      sessionStorage.setItem(VIEW_REQUEST_STORAGE_KEY, JSON.stringify({ fileName, analysis, contractText }));
     } catch {
       // Worst case the click just lands on the empty upload screen.
     }
@@ -413,7 +415,7 @@ export default function DashboardPage() {
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={() => viewContract(currentSession.fileName, currentSession.analysis)}
+              onClick={() => viewContract(currentSession.fileName, currentSession.analysis, currentSession.contractText ?? "")}
             >
               Back to Analysis
             </button>
@@ -542,7 +544,7 @@ export default function DashboardPage() {
                   )}
 
                   <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
-                    <button type="button" className="btn btn-primary" onClick={() => viewContract(openTarget.fileName, openTarget.analysis)}>
+                    <button type="button" className="btn btn-primary" onClick={() => viewContract(openTarget.fileName, openTarget.analysis, openTarget.contractText)}>
                       View full analysis
                     </button>
                   </div>

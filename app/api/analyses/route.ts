@@ -3,7 +3,13 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { createUserClient, getAuthenticatedUserId } from "@/lib/supabase-server";
 import { getSessionId } from "@/lib/session";
 
-const COLUMNS = "id, created_at, file_name, analysis";
+// contract_text rides along with every row in this list (not just whichever
+// one gets opened) so the dashboard can hand it to Ask Your Contract the
+// moment a past analysis is reopened, with no second round trip — the same
+// trade-off the already-included `analysis` blob makes. Worth revisiting if
+// this list ever needs to be lean (a separate detail endpoint), but there's
+// no sign of that being a real cost yet.
+const COLUMNS = "id, created_at, file_name, analysis, contract_text";
 const LIMIT = 10;
 
 // Two distinct ownership models read through two distinct clients.

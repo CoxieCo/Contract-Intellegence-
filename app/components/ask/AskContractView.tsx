@@ -68,6 +68,30 @@ function Corners() {
   );
 }
 
+// The model is asked (see app/api/ask/route.ts's system prompt) to separate
+// a longer or multi-part answer — most often a verbatim quote, per earlier
+// feedback that this feature should quote exact contract wording rather than
+// paraphrase it — with blank lines rather than running everything together.
+// A single <p> with the raw string ignores that entirely: HTML collapses
+// "\n\n" like any other whitespace, so a well-structured answer would still
+// render as one dense block. This renders each blank-line-separated chunk as
+// its own paragraph instead.
+function AnswerText({ text }: { text: string }) {
+  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (paragraphs.length <= 1) {
+    return <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55 }}>{text}</p>;
+  }
+  return (
+    <>
+      {paragraphs.map((p, i) => (
+        <p key={i} style={{ margin: i === 0 ? 0 : "8px 0 0", fontSize: 14.5, lineHeight: 1.55 }}>
+          {p}
+        </p>
+      ))}
+    </>
+  );
+}
+
 function SectionCiteChip({ section, onClick }: { section: ResultSectionId; onClick: () => void }) {
   return (
     <button
@@ -256,7 +280,7 @@ export default function AskContractView({
                         Contract AI
                       </p>
                       <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-divider)", padding: "10px 13px" }}>
-                        <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55 }}>{entry.answer}</p>
+                        <AnswerText text={entry.answer} />
                         {entry.section && <SectionCiteChip section={entry.section} onClick={() => onJumpToSection(entry.section as ResultSectionId)} />}
                       </div>
                     </div>

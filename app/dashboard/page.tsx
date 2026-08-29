@@ -653,7 +653,7 @@ export default function DashboardPage() {
                               <p className="text-muted" style={{ fontSize: 13, lineHeight: 1.55, margin: 0 }}>{item.explanation}</p>
                               <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                                 <span className="text-muted" style={{ fontSize: 12 }}>{provenance}</span>
-                                {hasCitation && <CiteTag page={item.page} section={item.section} onOpen={openCitation} maxWidth={170} />}
+                                {hasCitation && <CiteTag page={item.page} section={item.section} quote={item.quote} onOpen={openCitation} maxWidth={170} />}
                               </div>
                             </div>
                           </div>

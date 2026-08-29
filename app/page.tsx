@@ -71,6 +71,10 @@ interface ThingToWatch {
   title: string;
   severity: "HIGH" | "MEDIUM" | "LOW";
   explanation: string;
+  // See lib/contract-analysis.ts's ThingToWatch for why this is separate
+  // from "explanation" — kept as its own copy here per this file's existing
+  // convention (matches the schema in app/api/analyze/route.ts's prompt).
+  quote: string;
   page: number | null;
   section: string | null;
 }
@@ -255,10 +259,10 @@ export default function Home() {
   const [viewingAsk, setViewingAsk] = useState(false);
   const [askSection, setAskSection] = useState<ResultSectionId>("overview");
 
-  const [viewerCitation, setViewerCitation] = useState<{ page: number; section: string | null } | null>(null);
+  const [viewerCitation, setViewerCitation] = useState<{ page: number; section: string | null; quote: string | null } | null>(null);
 
-  const openCitation = (page: number, section: string | null) => {
-    setViewerCitation({ page, section });
+  const openCitation = (page: number, section: string | null, quote: string | null = null) => {
+    setViewerCitation({ page, section, quote });
   };
 
   const scrollToUpload = () => {
@@ -700,6 +704,7 @@ export default function Home() {
           file={selectedFile}
           page={viewerCitation.page}
           section={viewerCitation.section}
+          quote={viewerCitation.quote}
           onClose={() => setViewerCitation(null)}
         />
       )}

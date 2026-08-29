@@ -14,12 +14,20 @@ function formatSectionLabel(section: string): string {
 export default function CiteTag({
   page,
   section,
+  quote,
   onOpen,
   maxWidth = 150,
 }: {
   page: number | null;
   section: string | null;
-  onOpen?: (page: number, section: string | null) => void;
+  // The exact clause text this citation points to, when the caller has it —
+  // passed straight through to onOpen so PdfViewer can highlight it, not
+  // just jump to the page. Every call site that has a genuinely verbatim
+  // source value should pass it; sites without one (or that predate this)
+  // can omit it, and the citation still works exactly as before, minus the
+  // highlight.
+  quote?: string | null;
+  onOpen?: (page: number, section: string | null, quote: string | null) => void;
   maxWidth?: number;
 }) {
   const [showTooltip, setShowTooltip] = useState(false);
@@ -40,7 +48,7 @@ export default function CiteTag({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          if (hasPage && onOpen) onOpen(page as number, section ?? null);
+          if (hasPage && onOpen) onOpen(page as number, section ?? null, quote ?? null);
           else setShowTooltip((s) => !s);
         }}
         className="tag tag-outline"

@@ -294,3 +294,21 @@ button:not(:disabled):active {
     width: 100%;
   }
 }
+
+/* PdfViewer's citation highlight (see app/components/PdfViewer.tsx and
+   lib/pdfHighlight.ts) — injected as raw HTML via react-pdf's
+   customTextRenderer, so it can't be a Tailwind utility class: Tailwind's
+   build-time scanner only picks up class names that appear literally in
+   source as `className="..."`, not ones assembled inside a JS template
+   string at runtime. A plain CSS rule referencing the app's own --accent
+   token works regardless, since it's a real CSS custom property, not a
+   Tailwind utility.
+   color: transparent matches every other span in react-pdf's text layer
+   (see TextLayer.css) — the highlight is a colored box sitting behind the
+   already-visible canvas-rendered glyphs, not a second copy of the text
+   drawn on top of them. */
+mark.ci-cite-highlight {
+  background-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: transparent;
+  border-radius: 2px;
+}

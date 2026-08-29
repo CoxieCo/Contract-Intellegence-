@@ -131,7 +131,7 @@ const expandToggleStyle: React.CSSProperties = {
 // the same as any Field Card's or Things to Watch item's citation. Mirrors
 // FieldCard's own hasCitation condition exactly, right down to only
 // rendering CiteTag when there's a real page or section to show.
-function AnswerPassage({ passage, onOpenCitation }: { passage: AskPassage; onOpenCitation: (page: number, section: string | null) => void }) {
+function AnswerPassage({ passage, onOpenCitation }: { passage: AskPassage; onOpenCitation: (page: number, section: string | null, quote: string | null) => void }) {
   const hasCitation = passage.page != null || passage.section != null;
   return (
     <div style={{ marginTop: 8 }}>
@@ -143,14 +143,14 @@ function AnswerPassage({ passage, onOpenCitation }: { passage: AskPassage; onOpe
       <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55 }}>{passage.quote}</p>
       {hasCitation && (
         <span style={{ display: "inline-flex", marginTop: 4 }}>
-          <CiteTag page={passage.page} section={passage.section} onOpen={onOpenCitation} />
+          <CiteTag page={passage.page} section={passage.section} quote={passage.quote} onOpen={onOpenCitation} />
         </span>
       )}
     </div>
   );
 }
 
-function AnswerBody({ intro, passages, onOpenCitation }: { intro: string; passages: AskPassage[]; onOpenCitation: (page: number, section: string | null) => void }) {
+function AnswerBody({ intro, passages, onOpenCitation }: { intro: string; passages: AskPassage[]; onOpenCitation: (page: number, section: string | null, quote: string | null) => void }) {
   return (
     <>
       {intro && <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55 }}>{intro}</p>}
@@ -173,7 +173,7 @@ function AnswerBody({ intro, passages, onOpenCitation }: { intro: string; passag
 // genuinely useful preview needs to say what's covered ("this touches
 // pricing, liability, termination"), not just show the first clause and cut
 // off mid-list.
-function AnswerText({ intro, passages, onOpenCitation }: { intro: string; passages: AskPassage[]; onOpenCitation: (page: number, section: string | null) => void }) {
+function AnswerText({ intro, passages, onOpenCitation }: { intro: string; passages: AskPassage[]; onOpenCitation: (page: number, section: string | null, quote: string | null) => void }) {
   const [expanded, setExpanded] = useState(false);
 
   if (passages.length < 2) {
@@ -218,7 +218,7 @@ interface AskContractViewProps {
   // ResultsView's own onOpenCitation, passed the same openCitation from
   // app/page.tsx, so an Ask citation behaves identically to every other
   // citation in the app.
-  onOpenCitation: (page: number, section: string | null) => void;
+  onOpenCitation: (page: number, section: string | null, quote: string | null) => void;
 }
 
 export default function AskContractView({

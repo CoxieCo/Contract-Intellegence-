@@ -38,7 +38,7 @@ interface ResultsViewProps {
   analysis: ContractAnalysis;
   fileName: string;
   analyzedAt: Date | null;
-  onOpenCitation: (page: number, section: string | null) => void;
+  onOpenCitation: (page: number, section: string | null, quote: string | null) => void;
   onExportPdf: () => void;
   onAskContract: () => void;
   // Fires whenever jumpTo lands on a section (sidebar click, a citation, or
@@ -557,7 +557,7 @@ function GlanceCard({
 }: {
   label: string;
   field: SourcedValue;
-  onOpenCitation: (page: number, section: string | null) => void;
+  onOpenCitation: (page: number, section: string | null, quote: string | null) => void;
 }) {
   const hasCitation = field.page != null || field.section != null;
   // At a glance is meant to be a terse scan, not a wall of clause text — the
@@ -574,7 +574,7 @@ function GlanceCard({
         {label}
       </p>
       <p style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.3, margin: "0 0 8px" }}>{display}</p>
-      {hasCitation && <CiteTag page={field.page} section={field.section} onOpen={onOpenCitation} />}
+      {hasCitation && <CiteTag page={field.page} section={field.section} quote={field.value} onOpen={onOpenCitation} />}
     </div>
   );
 }

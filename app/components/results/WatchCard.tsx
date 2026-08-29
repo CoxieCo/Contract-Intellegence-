@@ -35,7 +35,7 @@ export default function WatchCard({
   item: ThingToWatch;
   highlighted?: boolean;
   forwardedRef?: (el: HTMLDivElement | null) => void;
-  onOpenCitation?: (page: number, section: string | null) => void;
+  onOpenCitation?: (page: number, section: string | null, quote: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const hasCitation = item.page != null || item.section != null;
@@ -82,7 +82,7 @@ export default function WatchCard({
             </p>
             {hasCitation && (
               <div style={{ marginTop: 10 }}>
-                <CiteTag page={item.page} section={item.section} onOpen={onOpenCitation} maxWidth={150} />
+                <CiteTag page={item.page} section={item.section} quote={item.quote} onOpen={onOpenCitation} maxWidth={150} />
               </div>
             )}
           </div>

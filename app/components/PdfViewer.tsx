@@ -1,8 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/Page/TextLayer.css";
+import type { TextItem } from "pdfjs-dist/types/src/display/api";
 import Spinner from "./Spinner";
+import { escapeHtml, findHighlightRanges, type HighlightTextItem } from "@/lib/pdfHighlight";
+
+// pdf.js's getTextContent() returns a mix of TextItem (has .str) and
+// TextMarkedContent (doesn't) — the same check react-pdf's own TextLayer
+// uses internally to tell them apart.
+function isTextItem(item: TextItem | { type: string }): item is TextItem {
+  return "str" in item;
+}
 
 // Must be configured in the same module that renders <Document>/<Page> —
 // see react-pdf's Next.js setup notes (setting it elsewhere can be overwritten
@@ -52,16 +62,43 @@ export default function PdfViewer({
   file,
   page,
   section,
+  quote,
   onClose,
 }: {
   file: File;
   page: number;
   section?: string | null;
+  // The exact clause text this citation points to — when it can be located
+  // on the page (see lib/pdfHighlight.ts), it's highlighted the same way a
+  // browser's own "find in page" would, not just navigated to. Optional and
+  // fails silently: a citation with no quote, or one that can't be matched,
+  // still opens the right page, just without a highlight.
+  quote?: string | null;
   onClose: () => void;
 }) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(page);
   const [loadError, setLoadError] = useState("");
+  // Tagged with the page it was captured for (set inside onGetTextSuccess's
+  // own closure over `currentPage` at the moment that specific page's text
+  // resolved — react-pdf cancels a stale in-flight request when the user
+  // navigates again before it resolves, so this is never a leftover from an
+  // abandoned page load). Deriving staleness this way, instead of an effect
+  // that resets state on every page change, avoids a synchronous setState
+  // in an effect body for what's really just derived state.
+  const [textItems, setTextItems] = useState<{ forPage: number; items: HighlightTextItem[] } | null>(null);
+
+  // Gated on currentPage === page (the page this citation actually points
+  // to) — a citation's highlight should never show up on a page the visitor
+  // navigated to themselves via Prev/Next — and on textItems.forPage
+  // matching the page actually on screen right now.
+  const highlightRanges = useMemo(() => {
+    if (currentPage !== page || !textItems || textItems.forPage !== currentPage) {
+      return new Map<number, { start: number; end: number }>();
+    }
+    const ranges = findHighlightRanges(textItems.items, quote);
+    return new Map(ranges.map((r) => [r.itemIndex, { start: r.start, end: r.end }]));
+  }, [textItems, currentPage, page, quote]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -156,9 +193,23 @@ export default function PdfViewer({
                   <Page
                     pageNumber={currentPage}
                     width={VIEWER_WIDTH}
-                    renderTextLayer={false}
+                    renderTextLayer
                     renderAnnotationLayer={false}
                     loading={<PageSkeleton />}
+                    onGetTextSuccess={(textContent) => {
+                      setTextItems({
+                        forPage: currentPage,
+                        items: textContent.items.filter(isTextItem).map((item) => ({ str: item.str, hasEOL: item.hasEOL })),
+                      });
+                    }}
+                    customTextRenderer={({ itemIndex, str }) => {
+                      const range = highlightRanges.get(itemIndex);
+                      if (!range) return escapeHtml(str);
+                      const before = escapeHtml(str.slice(0, range.start));
+                      const match = escapeHtml(str.slice(range.start, range.end));
+                      const after = escapeHtml(str.slice(range.end));
+                      return `${before}<mark class="ci-cite-highlight">${match}</mark>${after}`;
+                    }}
                   />
                 </div>
               </Document>

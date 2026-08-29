@@ -217,7 +217,7 @@ export async function POST(req: NextRequest) {
     "slaCommitments": { "value": "...", "summary": "...", "page": <number|null>, "section": "..."|null }
   },
   "thingsToWatch": [
-    { "title": "short title", "severity": "HIGH" | "MEDIUM" | "LOW", "explanation": "...", "page": <number|null>, "section": "..."|null }
+    { "title": "short title", "severity": "HIGH" | "MEDIUM" | "LOW", "explanation": "...", "quote": "...", "page": <number|null>, "section": "..."|null }
   ]
 }
 
@@ -244,7 +244,7 @@ Every field above must be present. Extraction rules — follow all of these exac
 10. The contract text below is divided into pages marked with "--- PAGE N ---" headers. When you extract a field's value, set "page" to the exact page number (matching one of those markers) where that value or clause actually appears. If the same fact is stated on more than one page, cite the page with the clearest/primary statement of it.
 11. Set "section" to the clause or section label EXACTLY as it is printed in the text (e.g. "Section 7.3", "Clause 13.2") only if the text explicitly labels it that way. Never invent, number, or guess a section label that isn't printed in the source text — if none is printed, use null.
 12. Set both "page" and "section" to the literal JSON value null (never 0, never an empty string, never a guess) whenever: the field's "value" is "Not found", OR the value was found but you cannot confidently identify which specific page it came from. Do not default to page 1 as a fallback.
-13. Apply the same page/section rules to every "thingsToWatch" item, based on the clause(s) the observation is drawn from.
+13. Apply the same page/section rules to every "thingsToWatch" item, based on the clause(s) the observation is drawn from. Also set "quote" to the exact clause text as printed (verbatim, for citation purposes, same as rule 14 below) that the observation is actually about — "explanation" is your own analysis of why it's worth flagging and is never itself a quote, so "quote" carries the real source text separately. If the observation is drawn from more than one clause, quote the single passage that most directly supports it, not a combination of several. If no specific clause can be pinned down (rare, since every item must already be tied to a concrete provision to qualify under rule 7), set "quote" to an empty string and "page"/"section" to null.
 14. "value" must be the exact clause text as printed in the contract (verbatim, for citation purposes) — do not paraphrase, shorten, or summarize it. "summary" must be a short, faithful paraphrase of "value" in your own plain-language words, roughly 6-14 words (under about 90 characters), for quick scanning. It must not add any fact, number, date, party, or condition absent from "value", and must not drop a condition that flips the meaning (e.g. don't drop "only if renewed early"). If "value" is already short (a single date, a name, a number), "summary" may simply repeat it verbatim.
 
 Field priority: the following fields are the most important to get right — contractOverview.parties, contractOverview.contractType, importantDates.startDate, importantDates.endDate, importantDates.renewalDate, importantDates.noticePeriod, importantDates.autoRenewal, commercialTerms.paymentTerms, commercialTerms.priceEscalation, keyClauses.termination, keyClauses.liabilityCap, keyClauses.governingLaw, and thingsToWatch. Still attempt every other field in the schema, using "Not found" where the contract doesn't say.

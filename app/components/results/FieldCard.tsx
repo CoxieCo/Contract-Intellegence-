@@ -17,7 +17,7 @@ export default function FieldCard({
   extraTag?: ReactNode;
   highlighted?: boolean;
   forwardedRef?: (el: HTMLDivElement | null) => void;
-  onOpenCitation?: (page: number, section: string | null) => void;
+  onOpenCitation?: (page: number, section: string | null, quote: string | null) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const notFound = field.value === "Not found";
@@ -53,7 +53,7 @@ export default function FieldCard({
         {(extraTag || hasCitation) && (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {extraTag}
-            {hasCitation && <CiteTag page={field.page} section={field.section} onOpen={onOpenCitation} />}
+            {hasCitation && <CiteTag page={field.page} section={field.section} quote={field.value} onOpen={onOpenCitation} />}
           </div>
         )}
       </div>

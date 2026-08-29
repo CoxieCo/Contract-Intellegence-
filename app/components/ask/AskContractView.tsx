@@ -68,6 +68,61 @@ function Corners() {
   );
 }
 
+// Same chevron as the dashboard's "View all N items" rollup — kept as its
+// own local copy rather than a shared import, matching how this codebase
+// already treats every screen's small icons as independent (see e.g.
+// CiteTag vs the old CiteChip: same behavior, deliberately separate copies).
+function ChevronIcon({ rotated }: { rotated: boolean }) {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flex: "none", opacity: 0.6, transform: rotated ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 220ms cubic-bezier(0.4,0,0.2,1)" }}
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
+// A short, colon-terminated line the model uses to introduce a quote (e.g.
+// "On price increases:" — see app/api/ask/route.ts rule 4) rather than a
+// quoted passage or ordinary prose. Used only to keep such a label paired
+// with the quote beneath it — see groupParagraphs.
+function isLabelLike(p: string): boolean {
+  return p.length <= 60 && !p.startsWith('"') && p.endsWith(":");
+}
+
+// Groups blank-line-separated paragraphs so a label is never separated from
+// the quote it introduces when the answer is collapsed — the pair expands
+// or collapses as one unit, never split across the fold.
+function groupParagraphs(paragraphs: string[]): string[][] {
+  const groups: string[][] = [];
+  for (let i = 0; i < paragraphs.length; i++) {
+    if (isLabelLike(paragraphs[i]) && i + 1 < paragraphs.length) {
+      groups.push([paragraphs[i], paragraphs[i + 1]]);
+      i++;
+    } else {
+      groups.push([paragraphs[i]]);
+    }
+  }
+  return groups;
+}
+
+// How many label/quote groups show before "Show N more" — comprehensiveness
+// over brevity is the deliberate choice for this feature (an analytical
+// question answering with every relevant clause, verbatim, is the point, not
+// a bug to trim away — see app/api/ask/route.ts's system prompt), so nothing
+// here shortens the answer itself. This only addresses the resulting
+// presentation problem: a short preview up front, the rest one click away,
+// same progressive-disclosure pattern as the dashboard's rollup.
+const ANSWER_PREVIEW_GROUPS = 2;
+
 // The model is asked (see app/api/ask/route.ts's system prompt) to separate
 // a longer or multi-part answer — most often a verbatim quote, per earlier
 // feedback that this feature should quote exact contract wording rather than
@@ -75,19 +130,54 @@ function Corners() {
 // A single <p> with the raw string ignores that entirely: HTML collapses
 // "\n\n" like any other whitespace, so a well-structured answer would still
 // render as one dense block. This renders each blank-line-separated chunk as
-// its own paragraph instead.
+// its own paragraph, and — since an exhaustive analytical answer can run to
+// many quoted clauses — collapses everything past the first couple behind a
+// "Show N more" toggle rather than dumping the whole thing into the chat log
+// at once.
 function AnswerText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
   const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+
   if (paragraphs.length <= 1) {
     return <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55 }}>{text}</p>;
   }
+
+  const groups = groupParagraphs(paragraphs);
+  const canCollapse = groups.length > ANSWER_PREVIEW_GROUPS;
+  const visibleGroups = expanded ? groups : groups.slice(0, ANSWER_PREVIEW_GROUPS);
+  const visibleParagraphs = visibleGroups.flat();
+  const hiddenCount = paragraphs.length - visibleParagraphs.length;
+
   return (
     <>
-      {paragraphs.map((p, i) => (
+      {visibleParagraphs.map((p, i) => (
         <p key={i} style={{ margin: i === 0 ? 0 : "8px 0 0", fontSize: 14.5, lineHeight: 1.55 }}>
           {p}
         </p>
       ))}
+      {canCollapse && (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          style={{
+            marginTop: 8,
+            border: "none",
+            background: "none",
+            font: "inherit",
+            color: "var(--color-accent-700)",
+            fontSize: 13,
+            fontWeight: 600,
+            padding: 0,
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
+          {expanded ? "Show less" : `Show ${hiddenCount} more`}
+          <ChevronIcon rotated={expanded} />
+        </button>
+      )}
     </>
   );
 }

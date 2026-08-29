@@ -374,7 +374,10 @@ export default function Home() {
         return;
       }
 
-      setAskHistory((prev) => [...prev, { question: q, answer: data.answer, section: data.section ?? null }]);
+      setAskHistory((prev) => [
+        ...prev,
+        { question: q, answer: data.answer, section: data.section ?? null, topics: Array.isArray(data.topics) ? data.topics : [] },
+      ]);
     } catch {
       setAskError("Couldn't reach the AI. Is the dev server running?");
     } finally {

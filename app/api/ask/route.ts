@@ -50,27 +50,49 @@ const MAX_CONTRACT_TEXT_LENGTH = 500_000;
 const ASK_SECTIONS = ["overview", "dates", "terms", "clauses", "watch", "unknown"] as const;
 type AskSection = (typeof ASK_SECTIONS)[number];
 
-function parseAskResponse(text: string): { answer: string; sourceHint: string; section: AskSection | null } {
-  let cleaned = text.trim();
+type RawAskResponse = { answer?: string; sourceHint?: string; section?: string; topics?: unknown };
 
-  if (cleaned.startsWith("```")) {
-    cleaned = cleaned
-      .replace(/^```[a-zA-Z]*\n/, "")
-      .replace(/```$/, "")
-      .trim();
-  }
+function stripCodeFence(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("```")) return trimmed;
+  return trimmed
+    .replace(/^```[a-zA-Z]*\n/, "")
+    .replace(/```$/, "")
+    .trim();
+}
 
+function parseAskResponse(text: string): { answer: string; sourceHint: string; section: AskSection | null; topics: string[] } {
   try {
-    const parsed = JSON.parse(cleaned) as { answer?: string; sourceHint?: string; section?: string };
+    let parsed = JSON.parse(stripCodeFence(text)) as RawAskResponse;
     if (typeof parsed.answer === "string") {
+      // Occasionally (observed with the richer multi-field schema below) the
+      // model nests the entire structured response a second time inside its
+      // own "answer" string — e.g. answer: "```json\n{ \"answer\": ...,
+      // \"topics\": [...] }\n```" — instead of returning those fields at the
+      // top level as asked. If the answer text itself looks like a fenced or
+      // raw JSON object carrying the same shape, unwrap it and use its
+      // fields instead of the outer shell, rather than showing the user a
+      // literal blob of nested JSON as their answer.
+      const innerCandidate = stripCodeFence(parsed.answer);
+      if (innerCandidate.startsWith("{") && innerCandidate.includes('"answer"')) {
+        try {
+          const inner = JSON.parse(innerCandidate) as RawAskResponse;
+          if (typeof inner.answer === "string") parsed = inner;
+        } catch {
+          // Not actually nested JSON — just answer text that happens to
+          // start with a brace. Fall through and use the outer shell as-is.
+        }
+      }
+
       const section = ASK_SECTIONS.find((s) => s === parsed.section) ?? null;
-      return { answer: parsed.answer, sourceHint: parsed.sourceHint ?? "", section };
+      const topics = Array.isArray(parsed.topics) ? parsed.topics.filter((t): t is string => typeof t === "string") : [];
+      return { answer: parsed.answer as string, sourceHint: parsed.sourceHint ?? "", section, topics };
     }
   } catch {
     // fall through to plain-text response
   }
 
-  return { answer: text.trim(), sourceHint: "", section: null };
+  return { answer: text.trim(), sourceHint: "", section: null, topics: [] };
 }
 
 interface HistoryTurn {
@@ -159,9 +181,10 @@ Rules — follow all of these exactly:
 5. If you can identify the specific clause or section the answer comes from, set "sourceHint" to a short description of it (e.g. "Section 3, Termination", or for a multi-clause answer, "Section 4, Pricing; Section 9, Liability") — only if it is actually identifiable in the text. Never fabricate a page or section reference that isn't evident in the text. If no source is identifiable, set "sourceHint" to an empty string.
 6. Earlier turns in this conversation, if present, are provided only so you can resolve references like "it" or "the other party" in the current question. They are never a source of contract facts — every fact in your answer must still come from the contract text below, following rules 1-2 exactly as if this were the first question asked.
 7. Set "section" to whichever ONE of these categories the question/answer is primarily about, using the literal id: "overview" (contract identity — parties, contract type, purpose, status), "dates" (start/end/renewal dates, notice periods/deadlines, auto-renewal), "terms" (contract value, payment terms, pricing, price escalation, minimum commitments), "clauses" (termination, liability, governing law, assignment, confidentiality, SLA), "watch" (risk/what to watch out for), or "unknown" (asking what's missing/not found in the contract). If none clearly fits, set "section" to null.
+8. If the answer quotes more than one clause, set "topics" to a short array naming just the subject of each one you quoted, in the same order — 1-3 words each, e.g. ["pricing", "liability cap", "termination rights"]. Name only what the clause is about, never what it says — a topic label is not itself a claim about the contract, so it's exempt from rule 2's quoting requirement, but it must still not characterize or editorialize. If the answer quotes only one clause, or none, set "topics" to an empty array.
 
-Return ONLY valid JSON (no markdown, no code fences, no preamble) matching this exact shape:
-{ "answer": "...", "sourceHint": "...", "section": "overview" | "dates" | "terms" | "clauses" | "watch" | "unknown" | null }
+Return ONLY valid JSON (no markdown, no code fences, no preamble) matching this exact shape, and this shape only — "answer" is the prose answer text itself; never put another JSON object, code fence, or copy of this same structure inside it:
+{ "answer": "...", "topics": ["..."], "sourceHint": "...", "section": "overview" | "dates" | "terms" | "clauses" | "watch" | "unknown" | null }
 
 Contract text:
 ${contractText}`;
@@ -184,7 +207,7 @@ ${contractText}`;
     const responseText =
       message.content[0].type === "text" ? message.content[0].text : "";
 
-    const { answer, sourceHint, section } = parseAskResponse(responseText);
+    const { answer, sourceHint, section, topics } = parseAskResponse(responseText);
 
     // Counted here, not before the Claude call — an anonymous visitor's free
     // questions are spent on answers they actually got, not on attempts that
@@ -200,7 +223,7 @@ ${contractText}`;
       if (usageError) console.error("Failed to record ask usage:", usageError.message);
     }
 
-    return NextResponse.json({ success: true, answer, sourceHint, section });
+    return NextResponse.json({ success: true, answer, sourceHint, section, topics });
   } catch (error) {
     console.error("Ask route error:", error);
     return NextResponse.json(

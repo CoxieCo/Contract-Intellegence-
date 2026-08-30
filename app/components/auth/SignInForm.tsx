@@ -13,8 +13,19 @@ import GoogleSignInButton from "./GoogleSignInButton";
 
 type Mode = "signin" | "signup";
 
-export default function SignInForm({ initialError }: { initialError?: string }) {
+// Only same-origin, non-protocol-relative paths survive — `next` can arrive
+// in a link a third party crafted, and a bare startsWith("/") still lets
+// "//evil.example" through as a protocol-relative redirect. Mirrors
+// safeRedirectPath in app/auth/callback/route.ts (the OAuth/email flows go
+// through that; this guards the password flow's own client-side push).
+function safeNext(raw: string | undefined): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/dashboard";
+  return raw;
+}
+
+export default function SignInForm({ initialError, next }: { initialError?: string; next?: string }) {
   const router = useRouter();
+  const destination = safeNext(next);
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,8 +35,8 @@ export default function SignInForm({ initialError }: { initialError?: string }) 
 
   // Both the OAuth round trip and the emailed confirmation link come back to
   // /auth/callback, which is where the session cookie actually gets written.
-  const callbackUrl = (next = "/dashboard") =>
-    `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
+  const callbackUrl = (target = destination) =>
+    `${window.location.origin}/auth/callback?next=${encodeURIComponent(target)}`;
 
   async function handleEmailSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -54,7 +65,7 @@ export default function SignInForm({ initialError }: { initialError?: string }) 
         setNotice(`Check ${email} for a confirmation link, then come back and sign in.`);
         return;
       }
-      router.push("/dashboard");
+      router.push(destination);
       router.refresh();
       return;
     }
@@ -65,7 +76,7 @@ export default function SignInForm({ initialError }: { initialError?: string }) 
       setError(signInError.message);
       return;
     }
-    router.push("/dashboard");
+    router.push(destination);
     // The server needs to re-render with the new session cookie; without this
     // the dashboard can paint from a cached signed-out render.
     router.refresh();

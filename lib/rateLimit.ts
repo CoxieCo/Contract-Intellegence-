@@ -15,6 +15,10 @@ interface RateLimitRule {
 const RULES = {
   analyze: { windowMinutes: 10, maxRequests: 10 },
   ask: { windowMinutes: 10, maxRequests: 30 },
+  // Creating a Stripe Checkout Session is cheap but not free, and the route
+  // is authenticated — this only exists to stop a stuck client (or a bored
+  // signed-in user) from spraying session creates at Stripe.
+  checkout: { windowMinutes: 10, maxRequests: 15 },
 } satisfies Record<string, RateLimitRule>;
 
 export type RateLimitedEndpoint = keyof typeof RULES;

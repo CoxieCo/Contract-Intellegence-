@@ -13,6 +13,7 @@ import HeroDemo from "./HeroDemo";
 import UploadPanel, { UploadAppState } from "./UploadPanel";
 import CoverageAccordion from "./CoverageAccordion";
 import FaqAccordion from "./FaqAccordion";
+import AuthStatus from "../auth/AuthStatus";
 import { IconArrowRight, IconCalendar, IconCheck, IconFileCheck, IconFileText, IconList, IconMessage } from "./icons";
 
 interface LandingProps {
@@ -42,6 +43,7 @@ const PRICING_TIERS = [
     cta: "Get Started",
     note: "No card required",
     highlighted: false,
+    action: "scan" as const,
   },
   {
     name: "PRO",
@@ -60,6 +62,9 @@ const PRICING_TIERS = [
     cta: "Start Scanning",
     note: "Cancel anytime",
     highlighted: true,
+    // Routes to /checkout, which creates a real Stripe Checkout Session
+    // (sending the visitor through sign-in first if needed).
+    action: "checkout" as const,
   },
   {
     name: "BUSINESS",
@@ -70,6 +75,7 @@ const PRICING_TIERS = [
     cta: "Talk to Sales",
     note: "Tailored onboarding",
     highlighted: false,
+    action: "scan" as const,
   },
 ];
 
@@ -139,9 +145,11 @@ export default function Landing(props: LandingProps) {
           <a href="#faq">FAQ</a>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          {/* Static markup until Phase 1's auth data model landed — now that
-              /signin exists, this has to actually go there. */}
-          <Link href="/signin" className="btn btn-ghost">Sign In</Link>
+          {/* Shows the signed-in account's email + a sign-out control when a
+              real Supabase session exists, and a "Sign in" link otherwise —
+              the same component the dashboard nav uses, so the auth state is
+              consistent everywhere the nav appears. */}
+          <AuthStatus />
           <button type="button" className="btn btn-primary" onClick={onScanCta}>Scan a Contract</button>
         </div>
       </nav>
@@ -554,9 +562,23 @@ export default function Landing(props: LandingProps) {
                   ))}
                 </ul>
                 <div style={{ marginTop: "auto", paddingTop: 24 }}>
-                  <button type="button" className={`btn btn-block ${tier.highlighted ? "btn-primary" : "btn-secondary"}`} onClick={onScanCta}>
-                    {tier.cta}
-                  </button>
+                  {tier.action === "checkout" ? (
+                    // A real anchor to /checkout, not a scroll handler — this
+                    // is the only pricing CTA that leaves the page, and making
+                    // it a <Link> keeps it from ever sharing the hero button's
+                    // scroll-to-scanner behavior.
+                    <Link href="/checkout" className="btn btn-block btn-primary">
+                      {tier.cta}
+                    </Link>
+                  ) : (
+                    <button
+                      type="button"
+                      className={`btn btn-block ${tier.highlighted ? "btn-primary" : "btn-secondary"}`}
+                      onClick={onScanCta}
+                    >
+                      {tier.cta}
+                    </button>
+                  )}
                   <p style={{ margin: "10px 0 0", textAlign: "center", fontSize: 11, color: dim }}>{tier.note}</p>
                 </div>
               </div>

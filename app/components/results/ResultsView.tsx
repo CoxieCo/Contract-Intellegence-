@@ -12,6 +12,7 @@
 
 import Link from "next/link";
 import { forwardRef, ReactNode, useImperativeHandle, useRef, useState } from "react";
+import AuthStatus from "../auth/AuthStatus";
 import type {
   CommercialTerms,
   ContractAnalysis,
@@ -295,6 +296,7 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
     <div className="ci-results" style={{ minHeight: "100vh", background: "var(--color-bg)", color: "var(--color-text)", display: "flex", flexDirection: "column" }}>
       <nav className="nav" style={{ borderBottom: "1px solid var(--color-divider)", flex: "none", position: "sticky", top: 0, zIndex: 50, background: "var(--color-bg)" }}>
         <span className="nav-brand">Contract Intelligence</span>
+        <AuthStatus />
         <Link href="/dashboard" className="btn btn-primary blueprint">
           <i className="corner tl" />
           <i className="corner tr" />

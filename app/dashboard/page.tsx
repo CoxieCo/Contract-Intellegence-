@@ -255,6 +255,28 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Set when Stripe Checkout redirects back here with ?checkout=success. The
+  // subscription now exists in Stripe, but nothing has marked this account
+  // Pro yet — that's the webhook handler (the next payments step) — so the
+  // banner is deliberately worded as "being set up", not "you're now Pro".
+  // Read from the URL once on mount (no useSearchParams, to avoid a Suspense
+  // boundary) and the param is stripped so a refresh doesn't resurface it.
+  const [checkoutSuccess, setCheckoutSuccess] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") !== "success") return;
+
+    params.delete("checkout");
+    params.delete("session_id");
+    const qs = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+
+    // Deferred to a microtask rather than set directly in the effect body —
+    // this is a one-time read of external (URL) state on mount, the same
+    // pattern app/page.tsx uses for its sessionStorage hydration.
+    queueMicrotask(() => setCheckoutSuccess(true));
+  }, []);
+
   // The dashboard only ever holds extracted data, never a source PDF (unlike
   // the results view, which can open the real file for a live upload) — any
   // citation clicked here always lands on this same "not available" notice.
@@ -445,6 +467,21 @@ export default function DashboardPage() {
               </p>
             </div>
           </div>
+
+          {checkoutSuccess && (
+            <div
+              role="status"
+              className="card blueprint"
+              style={{ padding: "12px 16px", borderColor: "var(--color-accent-700)", fontSize: 14, display: "flex", alignItems: "flex-start", gap: 10 }}
+            >
+              <Corners />
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--color-accent-800)", marginTop: 5, flex: "none" }} />
+              <span>
+                <strong style={{ fontWeight: 600 }}>Payment received.</strong>{" "}
+                <span className="text-muted">Your Pro subscription is being set up — it can take a moment to show up on your account.</span>
+              </span>
+            </div>
+          )}
 
           <ClaimBanner onClaimed={loadAnalyses} />
 

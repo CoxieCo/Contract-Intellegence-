@@ -5,11 +5,26 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase-browser";
 
-// PLACEHOLDER UI — see app/components/auth/SignInForm.tsx. Just enough of an
-// account control to sign out and to tell at a glance which account a page is
-// being viewed as, which the verification steps need.
+// The nav's account control: shows the signed-in account's email plus a
+// sign-out button when a real Supabase session exists, and a "Sign in" link
+// otherwise. Used in every nav across the app (landing, dashboard, results,
+// Ask, scan) so the auth state is visible and consistent everywhere, not just
+// on one page.
+//
+// Colours are inline rather than via .text-muted / .btn-* utility classes,
+// because those are scoped to .ci-results and this also renders inside
+// .ci-landing.
 
-export default function AuthStatus({ onSignedOut }: { onSignedOut: () => void }) {
+const mutedStyle: React.CSSProperties = {
+  fontSize: 13,
+  color: "color-mix(in srgb, currentColor 60%, transparent)",
+  maxWidth: 180,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+export default function AuthStatus({ onSignedOut }: { onSignedOut?: () => void }) {
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -24,12 +39,21 @@ export default function AuthStatus({ onSignedOut }: { onSignedOut: () => void })
       setReady(true);
     });
 
+    // Keep the indicator live if the session changes in another tab or is
+    // refreshed/expired while this page is open.
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!cancelled) setEmail(session?.user?.email ?? null);
+    });
+
     return () => {
       cancelled = true;
+      sub.subscription.unsubscribe();
     };
   }, []);
 
-  if (!ready) return null;
+  // Briefly render nothing rather than flashing "Sign in" before the session
+  // check resolves.
+  if (!ready) return <span style={{ ...mutedStyle, opacity: 0 }}>…</span>;
 
   if (!email) {
     return (
@@ -41,7 +65,9 @@ export default function AuthStatus({ onSignedOut }: { onSignedOut: () => void })
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <span className="text-muted" style={{ fontSize: 13 }}>{email}</span>
+      <span style={mutedStyle} title={email}>
+        {email}
+      </span>
       <button
         type="button"
         className="btn btn-secondary"
@@ -49,9 +75,7 @@ export default function AuthStatus({ onSignedOut }: { onSignedOut: () => void })
           const supabase = createClient();
           await supabase.auth.signOut();
           setEmail(null);
-          // The list currently on screen is this account's; it has to be
-          // re-read as the anonymous session, not left showing stale rows.
-          onSignedOut();
+          onSignedOut?.();
           router.refresh();
         }}
       >

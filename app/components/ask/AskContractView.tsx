@@ -12,6 +12,7 @@
 
 import { KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react";
 import type { ThingToWatch } from "@/lib/contract-analysis";
+import AuthStatus from "../auth/AuthStatus";
 import { severityRank } from "@/lib/contract-analysis";
 import type { ResultSectionId } from "../results/ResultsView";
 import type { AskPassage } from "@/app/api/ask/route";
@@ -270,10 +271,13 @@ export default function AskContractView({
     <div className="ci-ask" style={{ minHeight: "100vh", background: "var(--color-bg)", color: "var(--color-text)", display: "flex", flexDirection: "column" }}>
       <nav className="nav" style={{ borderBottom: "1px solid var(--color-divider)" }}>
         <span className="nav-brand">Contract Intelligence</span>
-        <button type="button" className="btn btn-primary blueprint" style={{ marginLeft: "auto", whiteSpace: "nowrap" }} onClick={onBack}>
-          <Corners />
-          Back to Analysis
-        </button>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <AuthStatus />
+          <button type="button" className="btn btn-primary blueprint" style={{ whiteSpace: "nowrap" }} onClick={onBack}>
+            <Corners />
+            Back to Analysis
+          </button>
+        </div>
       </nav>
 
       <main style={{ flex: 1, minWidth: 0, padding: "40px 40px 90px", display: "flex", justifyContent: "center" }}>

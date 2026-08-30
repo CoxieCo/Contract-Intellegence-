@@ -9,9 +9,9 @@ import "../components/results/results.css";
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, next } = await searchParams;
 
   return (
     <div
@@ -25,7 +25,7 @@ export default async function SignInPage({
       </nav>
       <main style={{ flex: 1, display: "flex", justifyContent: "center", padding: "48px 24px" }}>
         <div style={{ width: "100%", maxWidth: 380 }}>
-          <SignInForm initialError={error} />
+          <SignInForm initialError={error} next={next} />
         </div>
       </main>
     </div>

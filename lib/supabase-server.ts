@@ -65,3 +65,23 @@ export async function getAuthenticatedUserId(client: SupabaseClient): Promise<st
   }
   return data?.claims?.sub ?? null;
 }
+
+// The authenticated user's id together with the email on their verified JWT,
+// or null if this request has no valid session. Same locally-verified
+// getClaims() path as getAuthenticatedUserId — Supabase mints `email` as a
+// standard claim — so this stays a single round-trip-free check. Used where a
+// route needs to hand the real email to a third party (Stripe Checkout), not
+// just scope a query by user id.
+export async function getAuthenticatedUser(
+  client: SupabaseClient
+): Promise<{ id: string; email: string | null } | null> {
+  const { data, error } = await client.auth.getClaims();
+  if (error) {
+    console.error("Failed to verify auth claims:", error.message);
+    return null;
+  }
+  const id = data?.claims?.sub;
+  if (!id) return null;
+  const email = typeof data?.claims?.email === "string" ? data.claims.email : null;
+  return { id, email };
+}

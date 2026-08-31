@@ -31,11 +31,38 @@ function resolveOrigin(req: NextRequest): string {
   return req.headers.get("origin") ?? req.nextUrl.origin;
 }
 
+// TEMPORARY: Stripe SDK errors carry no secret values — type/code/param/
+// message are safe to surface. Pulls the useful fields off whatever the SDK
+// threw so they can be both logged and returned in the response body, so the
+// cause is visible from a single `curl` without digging through host logs.
+function describeStripeError(err: unknown) {
+  const e = err as {
+    type?: string;
+    code?: string;
+    param?: string;
+    detail?: unknown;
+    statusCode?: number;
+    requestId?: string;
+    message?: string;
+  };
+  return {
+    name: (err as { name?: string })?.name ?? null,
+    type: e.type ?? null,
+    code: e.code ?? null,
+    param: e.param ?? null,
+    statusCode: e.statusCode ?? null,
+    requestId: e.requestId ?? null,
+    message: e.message ?? String(err),
+  };
+}
+
 export async function POST(req: NextRequest) {
-  // TEMPORARY: runs on every /api/checkout call. One line, no secret values —
-  // just the runtime shape of each env var plus which Vercel deployment this
-  // is. Remove once the env-var issue is resolved.
-  console.log("[checkout-diagnostics]", JSON.stringify(describeStripeEnv()));
+  // TEMPORARY: runs on every /api/checkout call. No secret values — just the
+  // runtime shape of each env var plus which Vercel deployment this is. Also
+  // returned in every error response body below so it's visible from `curl`
+  // alone. Remove once the checkout issue is resolved.
+  const envDiagnostics = describeStripeEnv();
+  console.log("[checkout-diagnostics] env", JSON.stringify(envDiagnostics));
 
   if (!isStripeConfigured()) {
     console.error(
@@ -43,7 +70,7 @@ export async function POST(req: NextRequest) {
         "STRIPE_PRO_PRICE_ID is not visible to this function at runtime (see the line above)"
     );
     return NextResponse.json(
-      { error: "Checkout isn't configured yet. Please try again later." },
+      { error: "Checkout isn't configured yet. Please try again later.", diagnostics: envDiagnostics },
       { status: 500 }
     );
   }
@@ -104,16 +131,21 @@ export async function POST(req: NextRequest) {
       // undefined.
       console.error("Stripe returned a Checkout Session with no URL", session.id);
       return NextResponse.json(
-        { error: "Couldn't start checkout. Please try again." },
+        { error: "Couldn't start checkout. Please try again.", diagnostics: { note: "session created but had no url", sessionId: session.id } },
         { status: 502 }
       );
     }
 
     return NextResponse.json({ url: session.url });
   } catch (err) {
-    console.error("Failed to create Stripe Checkout Session:", err);
+    const stripeError = describeStripeError(err);
+    console.error("[checkout-diagnostics] Stripe call failed:", JSON.stringify(stripeError));
     return NextResponse.json(
-      { error: "Couldn't start checkout. Please try again." },
+      {
+        error: "Couldn't start checkout. Please try again.",
+        // TEMPORARY diagnostic — Stripe error fields carry no secrets.
+        diagnostics: { stripeError, priceIdPrefix: STRIPE_PRO_PRICE_ID?.slice(0, 6) ?? null },
+      },
       { status: 502 }
     );
   }

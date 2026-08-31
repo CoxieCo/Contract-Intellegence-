@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { stripe, STRIPE_PRO_PRICE_ID } from "@/lib/stripe";
+import { getStripe, isStripeConfigured, STRIPE_PRO_PRICE_ID } from "@/lib/stripe";
 import { createUserClient, getAuthenticatedUser } from "@/lib/supabase-server";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
@@ -32,8 +32,10 @@ function resolveOrigin(req: NextRequest): string {
 }
 
 export async function POST(req: NextRequest) {
-  if (!STRIPE_PRO_PRICE_ID) {
-    console.error("Checkout misconfigured: STRIPE_PRO_PRICE_ID is not set");
+  if (!isStripeConfigured()) {
+    console.error(
+      "Checkout misconfigured — set STRIPE_SECRET_KEY and STRIPE_PRO_PRICE_ID in this environment"
+    );
     return NextResponse.json(
       { error: "Checkout isn't configured yet. Please try again later." },
       { status: 500 }
@@ -65,9 +67,11 @@ export async function POST(req: NextRequest) {
   const origin = resolveOrigin(req);
 
   try {
+    const stripe = getStripe();
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
-      line_items: [{ price: STRIPE_PRO_PRICE_ID, quantity: 1 }],
+      // Non-null: isStripeConfigured() above already verified it is set.
+      line_items: [{ price: STRIPE_PRO_PRICE_ID!, quantity: 1 }],
 
       // Prefill (and lock) the email to the one on the verified session, so
       // the Stripe customer and the Supabase account share an address.

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStripe, isStripeConfigured, STRIPE_PRO_PRICE_ID } from "@/lib/stripe";
+import { getStripe, isStripeConfigured, STRIPE_PRO_PRICE_ID, describeStripeEnv } from "@/lib/stripe";
 import { createUserClient, getAuthenticatedUser } from "@/lib/supabase-server";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
@@ -32,9 +32,15 @@ function resolveOrigin(req: NextRequest): string {
 }
 
 export async function POST(req: NextRequest) {
+  // TEMPORARY: runs on every /api/checkout call. One line, no secret values —
+  // just the runtime shape of each env var plus which Vercel deployment this
+  // is. Remove once the env-var issue is resolved.
+  console.log("[checkout-diagnostics]", JSON.stringify(describeStripeEnv()));
+
   if (!isStripeConfigured()) {
     console.error(
-      "Checkout misconfigured — set STRIPE_SECRET_KEY and STRIPE_PRO_PRICE_ID in this environment"
+      "[checkout-diagnostics] isStripeConfigured() === false — STRIPE_SECRET_KEY and/or " +
+        "STRIPE_PRO_PRICE_ID is not visible to this function at runtime (see the line above)"
     );
     return NextResponse.json(
       { error: "Checkout isn't configured yet. Please try again later." },

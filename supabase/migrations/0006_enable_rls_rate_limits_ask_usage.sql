@@ -1,0 +1,32 @@
+-- Run this in the Supabase Dashboard's SQL Editor before deploying the code
+-- in this commit — same manual copy-paste convention as every earlier
+-- migration (no CLI / migration runner wired into this repo).
+
+-- ---------------------------------------------------------------------
+-- Live verification against the database found RLS already enabled on
+-- both rate_limits and ask_usage. For rate_limits that enable was never
+-- recorded in any tracked migration — migration 0001 created the table
+-- (see 0001_rate_limit_and_session_scoping.sql) but never enabled RLS on
+-- it, so the enable must have been applied by hand directly against the
+-- database, outside this migration history.
+--
+-- ask_usage's RLS enable IS already tracked, in
+-- 0004_ask_usage_cap.sql ("alter table ask_usage enable row level
+-- security;"). It's restated here too, purely so this file is a complete,
+-- self-contained record of "every RLS-protected table this project has,
+-- and the statement that protects it" in one place — not because 0004 is
+-- missing or wrong.
+--
+-- Without this, a fresh `supabase db reset` or a fork that only replays
+-- tracked migrations would recreate rate_limits with RLS off: the anon
+-- and service-role posture both tables rely on (see 0001 and 0004) would
+-- silently not exist until someone noticed and re-ran the fix by hand
+-- again.
+--
+-- `enable row level security` is idempotent — Postgres allows re-running
+-- it on a table where it's already on, so this is safe to run against the
+-- current database (a no-op there) and also what makes a from-scratch
+-- replay end up in the same state.
+-- ---------------------------------------------------------------------
+alter table rate_limits enable row level security;
+alter table ask_usage enable row level security;

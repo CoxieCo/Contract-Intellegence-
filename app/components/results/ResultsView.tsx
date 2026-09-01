@@ -46,6 +46,11 @@ interface ResultsViewProps {
   // an external jumpTo call) — lets the parent track "what was the user last
   // looking at" for the Ask Your Contract page's default context/suggestions.
   onSectionChange?: (section: ResultSectionId, fieldKey?: string) => void;
+  // Both optional and unused by the real scan flow — set only by the
+  // landing page's sample-scan flow, to mark a pre-generated sample as such
+  // and offer a way back to the picker instead of the Dashboard.
+  badge?: string;
+  backLink?: { label: string; onClick: () => void };
 }
 
 const overviewLabels: Record<keyof ContractOverview, string> = {
@@ -186,7 +191,7 @@ function MissingFieldCard({ label, category }: { label: string; category: string
 }
 
 const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function ResultsView(
-  { analysis, fileName, analyzedAt, onOpenCitation, onExportPdf, onAskContract, onSectionChange },
+  { analysis, fileName, analyzedAt, onOpenCitation, onExportPdf, onAskContract, onSectionChange, badge, backLink },
   ref
 ) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -324,7 +329,10 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
               <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 300, flex: "1 1 300px" }}>
                 <IconFile size={20} />
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fileName}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fileName}</span>
+                    {badge && <span className="tag tag-outline" style={{ fontSize: 11 }}>{badge}</span>}
+                  </div>
                   {analyzedAt && (
                     <div className="text-muted" style={{ fontSize: 12, marginTop: 2 }}>
                       {formatAnalyzedAt(analyzedAt)}
@@ -333,6 +341,11 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "0 1 auto", flexWrap: "wrap" }}>
+                {backLink && (
+                  <button type="button" className="btn btn-ghost" onClick={backLink.onClick}>
+                    ← {backLink.label}
+                  </button>
+                )}
                 <Link href="/dashboard" className="btn btn-primary blueprint">
                   <i className="corner tl" />
                   <i className="corner tr" />

@@ -1,10 +1,20 @@
 "use client";
 
-// Standalone "pick a sample contract" section — a deliberate, user-triggered
-// demo, separate from HeroDemo's ambient hero illustration above. Visitors
-// choose one of 3 pre-generated sample contracts (by dragging its icon card
-// onto the drop zone, clicking "Try it →", or using the "Select PDF"
-// fallback) to watch the full scan-to-results experience play out below.
+// Standalone "pick a sample contract" section. Visitors choose one of 3
+// pre-generated sample contracts (dragging its icon card onto the drop zone,
+// clicking "Try it →", or the "Select PDF" fallback) and watch the *real*
+// scan-to-results screens run against pre-generated data:
+//
+//   confirm card (ConfirmCard) -> ScanningView -> ResultsView
+//
+// Same three components the real upload flow uses (app/page.tsx) — reused
+// as-is, not recreated. The only things faked are the timing (ScanningView's
+// stepsDone/phase are driven by a local timer, never a real analyze call)
+// and the source document (ResultsView's citations open a small "here's the
+// quoted clause" modal instead of a real PDF page, since there's no real
+// file). ResultsView's own "Sample analysis" badge and "← Try another
+// sample" link (both optional props it now takes) make the difference from
+// a real scan obvious throughout.
 //
 // Nothing here ever reads a real file. The drag mechanism only recognizes
 // the icon cards' own custom dataTransfer type — a real file dragged onto
@@ -13,137 +23,126 @@
 // (do-nothing-useful) handling. The "Select PDF" fallback opens a real
 // native file picker purely as a familiar click-based trigger gesture:
 // whatever file is chosen is discarded unread, and the active sample's
-// pre-generated data plays regardless — matching the on-page promise that
-// nothing is uploaded and no contract of the visitor's is analyzed.
+// pre-generated data plays regardless.
+//
+// While a sample is running (confirm/scanning/results), those three screens
+// take over the full viewport (position: fixed, same full-page layouts
+// ScanningView/ResultsView already use) rather than appearing inline in this
+// section — matching how the real flow replaces the whole page rather than
+// growing a panel inline. "← Try another sample" (or closing the confirm
+// screen) drops back to the picker below.
 
-import { CSSProperties, ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
 import { DemoContract, SAMPLE_CONTRACTS } from "./sampleContracts";
 import { IconArrowRight, IconUpload } from "./icons";
-
-const STEP_LABELS = ["01 Upload", "02 Scan", "03 Extract", "04 Ask"];
+import ConfirmCard from "./ConfirmCard";
+import ScanningView, { ScanPhase } from "../scan/ScanningView";
+import ResultsView from "../results/ResultsView";
 
 // Custom dataTransfer type used for the sample-card drag. Deliberately
 // namespaced and non-standard so it can never collide with a real file
 // drag, which reports the standard "Files" type instead.
 const SAMPLE_DRAG_TYPE = "application/x-ci-sample-contract-id";
 
-interface DemoState {
-  step: number;
-  file: boolean;
-  scanPage: number;
-  done: boolean;
-  nf: number;
-  typed: number;
-  thinking: boolean;
-  answer: boolean;
-  acite: boolean;
+// Must match ScanningView's own SCAN_STEPS.length (5) — not exported from
+// there, so kept in sync here by hand.
+const SCAN_STEP_COUNT = 5;
+
+type FlowStep = "picker" | "confirm" | "scanning" | "results";
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-function freshState(): DemoState {
-  return { step: 0, file: false, scanPage: 0, done: false, nf: 0, typed: 0, thinking: false, answer: false, acite: false };
-}
-
-function finalState(contract: DemoContract): DemoState {
-  return {
-    step: 3,
-    file: true,
-    scanPage: contract.pages,
-    done: true,
-    nf: contract.fields.length,
-    typed: contract.askQ.length,
-    thinking: false,
-    answer: true,
-    acite: true,
-  };
-}
-
-function FileGlyph({ small, style }: { small?: boolean; style?: CSSProperties }) {
+function FileGlyph({ small }: { small?: boolean }) {
   const size = small ? 10 : 15;
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={style}
-    >
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" style={{ flex: "none", opacity: 0.7 }}>
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <path d="M14 2v6h6" />
     </svg>
   );
 }
 
-function prefersReducedMotion() {
-  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+// A minimal nav bar matching ScanningView/ResultsView's own, shown above the
+// confirm screen so the full-viewport takeover doesn't look like a bare box.
+function TakeoverNav({ onClose }: { onClose: () => void }) {
+  return (
+    <nav className="nav" style={{ borderBottom: "1px solid var(--color-divider)" }}>
+      <span className="nav-brand">Contract Intelligence</span>
+      <button type="button" className="btn btn-ghost" style={{ marginLeft: "auto" }} onClick={onClose}>
+        ← Back to samples
+      </button>
+    </nav>
+  );
+}
+
+interface CitationState {
+  page: number | null;
+  section: string | null;
+  quote: string | null;
 }
 
 export default function SampleScanSection() {
+  const [step, setStep] = useState<FlowStep>("picker");
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [session, setSession] = useState(0);
-  const [demo, setDemo] = useState<DemoState>(freshState());
   const [isDropTarget, setIsDropTarget] = useState(false);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [stepsDone, setStepsDone] = useState(0);
+  const [phase, setPhase] = useState<ScanPhase>("scanning");
+  const [analyzedAt, setAnalyzedAt] = useState<Date | null>(null);
+  const [citation, setCitation] = useState<CitationState | null>(null);
+  const [askNoticeOpen, setAskNoticeOpen] = useState(false);
+
+  const sectionRef = useRef<HTMLElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const active = activeId ? SAMPLE_CONTRACTS.find((c) => c.id === activeId) ?? null : null;
+  const active: DemoContract | null = activeId ? SAMPLE_CONTRACTS.find((c) => c.id === activeId) ?? null : null;
 
   const dim = "color-mix(in srgb, var(--color-text) 55%, transparent)";
   const dim70 = "color-mix(in srgb, var(--color-text) 78%, transparent)";
 
-  // Selecting (or re-selecting) a sample bumps `session` so the effect below
-  // always restarts the playback, even when the visitor triggers the same
-  // contract twice in a row. The initial demo state (fresh vs. already-final
-  // for reduced motion) is decided here, synchronously with the click/drop,
-  // rather than inside the effect.
-  const trigger = (id: string) => {
-    const contract = SAMPLE_CONTRACTS.find((c) => c.id === id);
-    if (!contract) return;
+  const pick = (id: string) => {
     setActiveId(id);
-    setDemo(prefersReducedMotion() ? finalState(contract) : freshState());
-    setSession((s) => s + 1);
-    requestAnimationFrame(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+    setStep("confirm");
   };
 
+  const startScanning = () => {
+    setStepsDone(0);
+    setPhase("scanning");
+    setStep("scanning");
+  };
+
+  const viewResults = () => {
+    setAnalyzedAt(new Date());
+    setStep("results");
+  };
+
+  const backToPicker = () => {
+    setStep("picker");
+    setActiveId(null);
+    setCitation(null);
+    setAskNoticeOpen(false);
+    requestAnimationFrame(() => sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+
+  // Drives ScanningView's stepsDone/phase on a fixed timer — never a real
+  // /api/analyze call. Only setTimeout callbacks touch state here; the reset
+  // to stepsDone=0/phase="scanning" happens synchronously in startScanning
+  // above, not in this effect body.
   useEffect(() => {
-    if (!active || prefersReducedMotion()) return;
-
-    const clear = () => {
-      timers.current.forEach(clearTimeout);
-      timers.current = [];
-    };
-
-    clear();
-
-    const schedule = (delay: number, patch: Partial<DemoState>) => {
-      timers.current.push(setTimeout(() => setDemo((s) => ({ ...s, ...patch })), delay));
-    };
-
-    const scanPages = active.pages;
-    const fields = active.fields;
-    const askQ = active.askQ;
-
-    schedule(300, { file: true });
-    schedule(800, { step: 1 });
-    for (let p = 1; p <= scanPages; p++) schedule(800 + p * 32, { scanPage: p });
-    const scanEnd = 800 + scanPages * 32;
-    schedule(scanEnd + 200, { done: true, step: 2 });
-    for (let i = 1; i <= fields.length; i++) schedule(scanEnd + 400 + i * 380, { nf: i });
-    const fieldsEnd = scanEnd + 400 + fields.length * 380;
-    schedule(fieldsEnd + 500, { step: 3 });
-    for (let i = 1; i <= askQ.length; i++) schedule(fieldsEnd + 700 + i * 26, { typed: i });
-    const typedEnd = fieldsEnd + 700 + askQ.length * 26;
-    schedule(typedEnd + 250, { thinking: true });
-    schedule(typedEnd + 1350, { thinking: false, answer: true });
-    schedule(typedEnd + 1700, { acite: true });
-
-    return clear;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, session]);
+    if (step !== "scanning" || !active) return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (let i = 1; i <= SCAN_STEP_COUNT; i++) {
+      timers.push(setTimeout(() => setStepsDone(i), i * 450));
+    }
+    timers.push(setTimeout(() => setPhase("complete"), SCAN_STEP_COUNT * 450 + 400));
+    return () => timers.forEach(clearTimeout);
+    // `active` is a stable reference from the module-level SAMPLE_CONTRACTS
+    // array (only its identity, tied to activeId, matters here), so this is
+    // safe to include without causing extra re-runs.
+  }, [step, activeId, active]);
 
   const handleCardDragStart = (e: DragEvent<HTMLDivElement>, id: string) => {
     e.dataTransfer.setData(SAMPLE_DRAG_TYPE, id);
@@ -165,7 +164,7 @@ export default function SampleScanSection() {
     if (!e.dataTransfer.types.includes(SAMPLE_DRAG_TYPE)) return;
     e.preventDefault();
     setIsDropTarget(false);
-    trigger(e.dataTransfer.getData(SAMPLE_DRAG_TYPE));
+    pick(e.dataTransfer.getData(SAMPLE_DRAG_TYPE));
   };
 
   // Whatever file the visitor picks here is never read — this button is a
@@ -173,23 +172,13 @@ export default function SampleScanSection() {
   // the sample scan for the currently active (or first) contract.
   const handleFileFallback = (e: ChangeEvent<HTMLInputElement>) => {
     e.target.value = "";
-    trigger(activeId ?? SAMPLE_CONTRACTS[0].id);
+    pick(activeId ?? SAMPLE_CONTRACTS[0].id);
   };
 
-  const scanCaption = active && demo.done ? "Analysis" : demo.step >= 1 ? "Scanning" : "Uploading";
-  const scanLabel =
-    active &&
-    (demo.done
-      ? "Scan complete — analyzed in 2.8s"
-      : demo.step >= 1
-        ? `Scanning page ${demo.scanPage} of ${active.pages}…`
-        : "Uploading…");
-  const scanPct = active ? Math.round((demo.scanPage / active.pages) * 100) : 0;
-  const statusLabel = demo.done ? "Analyzed" : demo.file ? "Processing" : "Ready";
-  const caretOn = active != null && demo.step >= 3 && demo.typed < active.askQ.length;
+  const openCitation = (page: number, section: string | null, quote: string | null) => setCitation({ page, section, quote });
 
   return (
-    <section id="sample-scan" data-screen-label="Sample scan" style={{ padding: "88px 0 32px" }}>
+    <section ref={sectionRef} id="sample-scan" data-screen-label="Sample scan" style={{ padding: "88px 0 32px" }}>
       <span style={{ display: "block", fontSize: 13, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600, color: "var(--color-accent-700)", marginBottom: 12 }}>
         Sample scan · See it in action
       </span>
@@ -207,81 +196,65 @@ export default function SampleScanSection() {
 
       {/* Draggable icon cards */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 28 }}>
-        {SAMPLE_CONTRACTS.map((c) => {
-          const isActive = c.id === activeId;
-          return (
-            <div
-              key={c.id}
-              role="button"
-              tabIndex={0}
-              draggable="true"
-              data-demo-contract-id={c.id}
-              onDragStart={(e) => handleCardDragStart(e, c.id)}
-              onClick={() => trigger(c.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  trigger(c.id);
-                }
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                cursor: "grab",
-                userSelect: "none",
-                border: `1px solid ${isActive ? "var(--color-accent)" : "var(--color-divider)"}`,
-                background: isActive ? "color-mix(in srgb, var(--color-accent) 8%, transparent)" : "transparent",
-                padding: "8px 12px",
-                fontSize: 12,
-                transition: "all 200ms cubic-bezier(0.4,0,0.2,1)",
-              }}
-            >
-              <FileGlyph small style={{ flex: "none", opacity: 0.7 }} />
-              <span style={{ fontWeight: 600 }}>{c.shortLabel}</span>
-              <span style={{ color: dim, fontFeatureSettings: "'tnum' 1" }}>{c.pages}p</span>
-            </div>
-          );
-        })}
+        {SAMPLE_CONTRACTS.map((c) => (
+          <div
+            key={c.id}
+            role="button"
+            tabIndex={0}
+            draggable="true"
+            data-demo-contract-id={c.id}
+            onDragStart={(e) => handleCardDragStart(e, c.id)}
+            onClick={() => pick(c.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                pick(c.id);
+              }
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "grab",
+              userSelect: "none",
+              border: "1px solid var(--color-divider)",
+              background: "transparent",
+              padding: "8px 12px",
+              fontSize: 12,
+              transition: "all 200ms cubic-bezier(0.4,0,0.2,1)",
+            }}
+          >
+            <FileGlyph small />
+            <span style={{ fontWeight: 600 }}>{c.shortLabel}</span>
+            <span style={{ color: dim, fontFeatureSettings: "'tnum' 1" }}>{c.pages}p</span>
+          </div>
+        ))}
       </div>
 
       {/* Descriptive cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,280px),1fr))", gap: "clamp(20px,2.5vw,32px)", marginBottom: 32 }}>
-        {SAMPLE_CONTRACTS.map((c) => {
-          const isActive = c.id === activeId;
-          return (
-            <div
-              key={c.id}
-              className="blueprint"
-              style={{
-                padding: 22,
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-                ...(isActive ? { borderColor: "var(--color-accent)", boxShadow: "inset 0 0 0 1px var(--color-accent)" } : {}),
-              }}
+        {SAMPLE_CONTRACTS.map((c) => (
+          <div key={c.id} className="blueprint" style={{ padding: 22, display: "flex", flexDirection: "column", gap: 10 }}>
+            <i className="corner tl" />
+            <i className="corner tr" />
+            <i className="corner bl" />
+            <i className="corner br" />
+            <span className="tag tag-outline" style={{ alignSelf: "flex-start" }}>{c.badge}</span>
+            <h3 style={{ fontSize: 18, lineHeight: "24px", letterSpacing: "0.02em", textTransform: "uppercase", margin: "6px 0 0" }}>
+              {c.title}
+            </h3>
+            <p style={{ fontSize: 14, lineHeight: "21px", margin: 0, color: dim70 }}>{c.description}</p>
+            <span style={{ fontSize: 12, color: dim, fontFeatureSettings: "'tnum' 1" }}>{c.pages} pages</span>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ marginTop: "auto", alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 8 }}
+              onClick={() => pick(c.id)}
             >
-              <i className="corner tl" />
-              <i className="corner tr" />
-              <i className="corner bl" />
-              <i className="corner br" />
-              <span className="tag tag-outline" style={{ alignSelf: "flex-start" }}>{c.badge}</span>
-              <h3 style={{ fontSize: 18, lineHeight: "24px", letterSpacing: "0.02em", textTransform: "uppercase", margin: "6px 0 0" }}>
-                {c.title}
-              </h3>
-              <p style={{ fontSize: 14, lineHeight: "21px", margin: 0, color: dim70 }}>{c.description}</p>
-              <span style={{ fontSize: 12, color: dim, fontFeatureSettings: "'tnum' 1" }}>{c.pages} pages</span>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                style={{ marginTop: "auto", alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 8 }}
-                onClick={() => trigger(c.id)}
-              >
-                Try it <IconArrowRight size={14} opacity={0.8} />
-              </button>
-            </div>
-          );
-        })}
+              Try it <IconArrowRight size={14} opacity={0.8} />
+            </button>
+          </div>
+        ))}
       </div>
 
       {/* Drop zone */}
@@ -317,146 +290,113 @@ export default function SampleScanSection() {
         </div>
       </div>
 
-      {/* Scan / results playback */}
-      {active && (
-        <div ref={panelRef} className="blueprint" style={{ marginTop: 28, background: "var(--color-bg)", scrollMarginTop: 88 }}>
-          <i className="corner tl" />
-          <i className="corner tr" />
-          <i className="corner bl" />
-          <i className="corner br" />
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 16,
-              flexWrap: "wrap",
-              borderBottom: "1px solid var(--color-divider)",
-              padding: "12px 20px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <FileGlyph style={{ flex: "none", opacity: 0.6 }} />
-              <span style={{ fontSize: 13, fontWeight: 600 }}>{active.filename}</span>
-              <span style={{ fontSize: 12, color: dim, fontFeatureSettings: "'tnum' 1" }}>{active.pages} pages</span>
-            </div>
-            <span className="tag tag-outline" style={{ gap: 6, display: "inline-flex", alignItems: "center" }}>
-              <span style={{ width: 6, height: 6, background: "var(--color-accent)", flex: "none" }} />
-              {statusLabel}
-            </span>
-          </div>
-
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "14px 20px", borderBottom: "1px solid var(--color-divider)" }}>
-            {STEP_LABELS.map((label, i) => {
-              const on = demo.step >= i && demo.file;
-              const cur = demo.step === i && demo.file;
-              const ink = on ? (cur ? "var(--color-accent-700)" : "var(--color-text)") : dim;
-              const bc = cur ? "var(--color-accent)" : "var(--color-divider)";
-              const bg = cur ? "color-mix(in srgb, var(--color-accent) 8%, transparent)" : "transparent";
-              return (
-                <span
-                  key={label}
-                  style={{
-                    fontSize: 12,
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
-                    fontWeight: 600,
-                    padding: "5px 12px",
-                    border: `1px solid ${bc}`,
-                    color: ink,
-                    background: bg,
-                    transition: "all 250ms cubic-bezier(0.4,0,0.2,1)",
-                  }}
-                >
-                  {label}
-                </span>
-              );
-            })}
-          </div>
-
-          <div style={{ padding: "22px 20px 26px", minHeight: 340 }}>
-            {demo.file && (
-              <div className="ci-fade">
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-                  <span style={{ fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 600, color: dim }}>
-                    {scanCaption}
-                  </span>
-                  <span style={{ fontSize: 12, color: "color-mix(in srgb, var(--color-text) 70%, transparent)", fontFeatureSettings: "'tnum' 1" }}>
-                    {scanLabel}
-                  </span>
-                </div>
-                <div style={{ height: 2, background: "color-mix(in srgb, var(--color-text) 10%, transparent)", marginBottom: 24 }}>
-                  <div style={{ height: "100%", background: "var(--color-accent)", width: `${scanPct}%`, transition: "width 60ms linear" }} />
-                </div>
-              </div>
-            )}
-
-            {active.fields.slice(0, demo.nf).map((f) => (
-              <div key={f.l} className="ci-fade" style={{ padding: "12px 0", borderBottom: "1px solid var(--color-divider)" }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 600, color: dim }}>
-                    {f.l}
-                  </span>
-                  <span
-                    className="ci-pop"
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 5,
-                      border: "1px solid var(--color-divider)",
-                      padding: "2px 8px",
-                      fontSize: 11,
-                      color: "color-mix(in srgb, var(--color-text) 70%, transparent)",
-                      maxWidth: "100%",
-                    }}
-                  >
-                    <FileGlyph small style={{ flex: "none", opacity: 0.7 }} />
-                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.c}</span>
-                  </span>
-                </div>
-                <span style={{ fontFamily: "var(--font-heading)", fontWeight: 600, fontSize: 19, lineHeight: 1.25, overflowWrap: "break-word" }}>
-                  {f.v}
-                </span>
-              </div>
-            ))}
-
-            {demo.step >= 3 && (
-              <div className="ci-fade" style={{ marginTop: 22 }}>
-                <span style={{ display: "block", fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 600, color: dim, marginBottom: 10 }}>
-                  Ask your contract
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, border: "1px solid var(--color-divider)", padding: "11px 14px" }}>
-                  <span style={{ width: 6, height: 6, background: "var(--color-accent)", flex: "none" }} />
-                  <span style={{ fontSize: 14, whiteSpace: "pre-wrap" }}>{active.askQ.slice(0, demo.typed)}</span>
-                  {caretOn && <span className="ci-caret" style={{ display: "inline-block", width: 2, height: 15, background: "var(--color-text)" }} />}
-                </div>
-                {demo.thinking && <p style={{ margin: "12px 2px 0", fontSize: 13, color: dim }}>Reading the document…</p>}
-                {demo.answer && (
-                  <div className="ci-fade" style={{ marginTop: 12, border: "1px solid var(--color-divider)", padding: "14px 16px" }}>
-                    <p style={{ margin: 0, fontSize: 14, lineHeight: "22px" }}>{active.answerText}</p>
-                    {demo.acite && (
-                      <span
-                        className="ci-pop"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 5,
-                          border: "1px solid var(--color-divider)",
-                          padding: "2px 8px",
-                          fontSize: 11,
-                          color: "color-mix(in srgb, var(--color-text) 70%, transparent)",
-                          marginTop: 10,
-                        }}
-                      >
-                        <FileGlyph small style={{ flex: "none", opacity: 0.7 }} />
-                        {active.answerCite}
-                      </span>
-                    )}
+      {/* Full-viewport takeover for confirm / scanning / results — mirrors
+          the real flow's whole-page swap instead of growing inline. */}
+      {active && step !== "picker" && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, overflowY: "auto", background: "var(--color-bg)" }}>
+          {step === "confirm" && (
+            <div className="ci-scan" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--color-bg)", color: "var(--color-text)" }}>
+              <TakeoverNav onClose={backToPicker} />
+              <main style={{ flex: 1, display: "flex", justifyContent: "center", padding: "56px 24px 64px" }}>
+                <div style={{ width: "100%", maxWidth: 480 }}>
+                  <div className="blueprint" style={{ background: "var(--color-bg)" }}>
+                    <i className="corner tl" />
+                    <i className="corner tr" />
+                    <i className="corner bl" />
+                    <i className="corner br" />
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "40px 28px", textAlign: "center" }}>
+                      <ConfirmCard
+                        fileName={active.filename}
+                        fileSizeLabel={formatFileSize(active.fileSizeBytes)}
+                        onContinue={startScanning}
+                        continueLabel="Scan this contract"
+                        secondaryActions={[{ label: "Choose a different sample", onClick: backToPicker }]}
+                      />
+                    </div>
                   </div>
+                </div>
+              </main>
+            </div>
+          )}
+
+          {step === "scanning" && (
+            <ScanningView fileName={active.filename} pageCount={active.pages} stepsDone={stepsDone} phase={phase} onViewResults={viewResults} />
+          )}
+
+          {step === "results" && (
+            <ResultsView
+              analysis={active.analysis}
+              fileName={active.filename}
+              analyzedAt={analyzedAt}
+              onOpenCitation={openCitation}
+              onExportPdf={() => window.print()}
+              onAskContract={() => setAskNoticeOpen(true)}
+              badge="Sample analysis"
+              backLink={{ label: "Try another sample", onClick: backToPicker }}
+            />
+          )}
+
+          {citation && (
+            <div
+              role="presentation"
+              onClick={() => setCitation(null)}
+              style={{ position: "fixed", inset: 0, zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.4)", padding: "32px 16px" }}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label="Source"
+                onClick={(e) => e.stopPropagation()}
+                className="card blueprint"
+                style={{ width: "100%", maxWidth: 440, padding: 20, background: "var(--color-bg)" }}
+              >
+                <i className="corner tl" />
+                <i className="corner tr" />
+                <i className="corner bl" />
+                <i className="corner br" />
+                <p className="card-kicker" style={{ margin: 0 }}>
+                  {[citation.section, citation.page ? `Page ${citation.page}` : null].filter(Boolean).join(" · ") || "Source"}
+                </p>
+                {citation.quote ? (
+                  <p style={{ margin: "10px 0 0", fontSize: 14, lineHeight: 1.6, fontStyle: "italic" }}>“{citation.quote}”</p>
+                ) : (
+                  <p className="text-muted" style={{ margin: "10px 0 0", fontSize: 13.5 }}>No exact clause text was pinpointed for this item.</p>
                 )}
+                <button type="button" className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => setCitation(null)}>
+                  Got it
+                </button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {askNoticeOpen && (
+            <div
+              role="presentation"
+              onClick={() => setAskNoticeOpen(false)}
+              style={{ position: "fixed", inset: 0, zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.4)", padding: "32px 16px" }}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label="Ask your contract unavailable"
+                onClick={(e) => e.stopPropagation()}
+                className="card blueprint"
+                style={{ width: "100%", maxWidth: 380, padding: 20, textAlign: "center", background: "var(--color-bg)" }}
+              >
+                <i className="corner tl" />
+                <i className="corner tr" />
+                <i className="corner bl" />
+                <i className="corner br" />
+                <p style={{ fontWeight: 600, fontSize: 15 }}>Not available for sample contracts</p>
+                <p className="text-muted" style={{ margin: "6px 0 0", fontSize: 13.5, lineHeight: 1.55 }}>
+                  Ask Your Contract needs a real document to answer from. Scan one of your own to try it.
+                </p>
+                <button type="button" className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => setAskNoticeOpen(false)}>
+                  Got it
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </section>

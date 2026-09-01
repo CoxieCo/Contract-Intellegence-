@@ -9,7 +9,8 @@
 // "analyzing" state here.
 
 import { ChangeEvent, DragEvent, RefObject } from "react";
-import { IconFile, IconUpload } from "./icons";
+import { IconUpload } from "./icons";
+import ConfirmCard from "./ConfirmCard";
 
 export type UploadAppState = "idle" | "fileSelected";
 
@@ -119,51 +120,15 @@ export default function UploadPanel({
             )}
 
             {appState === "fileSelected" && selectedFile && (
-              <>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 44,
-                    height: 44,
-                    border: "1px solid var(--color-accent)",
-                    background: "color-mix(in srgb, var(--color-accent) 8%, transparent)",
-                    marginBottom: 16,
-                  }}
-                >
-                  <IconFile size={20} opacity={0.8} />
-                </div>
-                <h3
-                  style={{
-                    fontSize: 15,
-                    fontWeight: 600,
-                    fontFamily: "var(--font-heading)",
-                    textTransform: "none",
-                    letterSpacing: 0,
-                    maxWidth: "100%",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    padding: "0 12px",
-                  }}
-                >
-                  {selectedFile.name}
-                </h3>
-                <p style={{ marginTop: 6, fontSize: 13, color: dim, fontFeatureSettings: "'tnum' 1" }}>{formatFileSize(selectedFile.size)}</p>
-
-                <div style={{ display: "flex", gap: 10, marginTop: 20, flexWrap: "wrap", justifyContent: "center" }}>
-                  <button type="button" className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>
-                    Replace PDF
-                  </button>
-                  <button type="button" className="btn btn-secondary" onClick={onRemoveClick}>
-                    Remove
-                  </button>
-                </div>
-                <button type="button" className="btn btn-primary" style={{ marginTop: 12 }} onClick={onContinueClick}>
-                  Continue
-                </button>
-              </>
+              <ConfirmCard
+                fileName={selectedFile.name}
+                fileSizeLabel={formatFileSize(selectedFile.size)}
+                onContinue={onContinueClick}
+                secondaryActions={[
+                  { label: "Replace PDF", onClick: () => fileInputRef.current?.click() },
+                  { label: "Remove", onClick: onRemoveClick },
+                ]}
+              />
             )}
           </div>
 

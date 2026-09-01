@@ -10,6 +10,7 @@ import { ChangeEvent, DragEvent, RefObject, useState } from "react";
 import Link from "next/link";
 import "./landing.css";
 import HeroDemo from "./HeroDemo";
+import SampleScanSection from "./SampleScanSection";
 import UploadPanel, { UploadAppState } from "./UploadPanel";
 import CoverageAccordion from "./CoverageAccordion";
 import FaqAccordion from "./FaqAccordion";
@@ -176,6 +177,9 @@ export default function Landing(props: LandingProps) {
           <HeroDemo />
           <p style={{ margin: "12px 2px 0", fontSize: 12, color: dim }}>Shown with a sample contract for illustration.</p>
         </section>
+
+        {/* SAMPLE SCAN */}
+        <SampleScanSection />
 
         {/* FEATURES */}
         <section id="features" data-screen-label="Features" style={{ padding: "72px 0 24px" }}>

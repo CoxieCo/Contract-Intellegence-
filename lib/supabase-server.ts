@@ -10,20 +10,27 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // analyses" is enforced by Postgres rather than by a `.eq()` an application
 // bug could drop.
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
-}
-
+// The env vars are read lazily, inside createUserClient, rather than at
+// module load. Next evaluates every route module while collecting page data
+// during `next build`, so throwing here at import time would take the whole
+// build down over a missing var in one environment (see lib/stripe.ts for
+// the same fix and the fuller writeup). With a lazy check, a missing var
+// instead surfaces as a clean 500 from whichever route calls this, at
+// request time.
+//
 // A fresh client per request — never a module-level singleton. The session
 // lives in the client instance, so a shared one would leak one visitor's
 // identity into another visitor's request on a warm serverless instance.
 export async function createUserClient(): Promise<SupabaseClient> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
+
   const cookieStore = await cookies();
 
-  return createServerClient(supabaseUrl!, supabaseAnonKey!, {
+  return createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: (cookiesToSet) => {

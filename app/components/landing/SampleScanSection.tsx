@@ -4,7 +4,10 @@
 // demo, separate from HeroDemo's ambient hero illustration above. Visitors
 // choose one of 3 pre-generated sample contracts (by dragging its icon card
 // onto the drop zone, clicking "Try it →", or using the "Select PDF"
-// fallback) to watch the full scan-to-results experience play out below.
+// fallback), confirm it on a simple "ready to scan" card, then watch the
+// real ScanningView checklist and real ResultsView play out below — the
+// same two components a genuine scan uses, just fed pre-generated sample
+// data instead of a real /api/analyze call.
 //
 // Nothing here ever reads a real file. The drag mechanism only recognizes
 // the icon cards' own custom dataTransfer type — a real file dragged onto
@@ -16,46 +19,25 @@
 // pre-generated data plays regardless — matching the on-page promise that
 // nothing is uploaded and no contract of the visitor's is analyzed.
 
-import { CSSProperties, ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, CSSProperties, DragEvent, useEffect, useRef, useState } from "react";
 import { DemoContract, SAMPLE_CONTRACTS } from "./sampleContracts";
 import { IconArrowRight, IconUpload } from "./icons";
-
-const STEP_LABELS = ["01 Upload", "02 Scan", "03 Extract", "04 Ask"];
+import ScanningView, { ScanPhase } from "../scan/ScanningView";
+import ResultsView from "../results/ResultsView";
 
 // Custom dataTransfer type used for the sample-card drag. Deliberately
 // namespaced and non-standard so it can never collide with a real file
 // drag, which reports the standard "Files" type instead.
 const SAMPLE_DRAG_TYPE = "application/x-ci-sample-contract-id";
 
-interface DemoState {
-  step: number;
-  file: boolean;
-  scanPage: number;
-  done: boolean;
-  nf: number;
-  typed: number;
-  thinking: boolean;
-  answer: boolean;
-  acite: boolean;
-}
+// Matches the fixed 5-row checklist ScanningView always renders (contract
+// identity, dates, terms, clauses, things to watch) — see that component's
+// SCAN_STEPS. Not imported from there since it isn't exported; there's
+// nothing to keep in sync beyond this count.
+const SAMPLE_SCAN_STEPS = 5;
+const SAMPLE_SCAN_STEP_DELAY_MS = 450;
 
-function freshState(): DemoState {
-  return { step: 0, file: false, scanPage: 0, done: false, nf: 0, typed: 0, thinking: false, answer: false, acite: false };
-}
-
-function finalState(contract: DemoContract): DemoState {
-  return {
-    step: 3,
-    file: true,
-    scanPage: contract.pages,
-    done: true,
-    nf: contract.fields.length,
-    typed: contract.askQ.length,
-    thinking: false,
-    answer: true,
-    acite: true,
-  };
-}
+type FlowPhase = "confirm" | "scanning" | "results";
 
 function FileGlyph({ small, style }: { small?: boolean; style?: CSSProperties }) {
   const size = small ? 10 : 15;
@@ -81,69 +63,76 @@ function prefersReducedMotion() {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
+// Sample mode has no real PDF, print root, or Ask Your Contract flow behind
+// it — ResultsView renders these same buttons for a genuine scan, but here
+// they're inert.
+function noop() {}
+
 export default function SampleScanSection() {
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [session, setSession] = useState(0);
-  const [demo, setDemo] = useState<DemoState>(freshState());
-  const [isDropTarget, setIsDropTarget] = useState(false);
+  const [flowPhase, setFlowPhase] = useState<FlowPhase | null>(null);
+  const [scanStepsDone, setScanStepsDone] = useState(0);
+  const [scanPhase, setScanPhase] = useState<ScanPhase>("scanning");
+  const [analyzedAt, setAnalyzedAt] = useState<Date | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const panelRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const active = activeId ? SAMPLE_CONTRACTS.find((c) => c.id === activeId) ?? null : null;
+  const active: DemoContract | null = activeId ? SAMPLE_CONTRACTS.find((c) => c.id === activeId) ?? null : null;
 
   const dim = "color-mix(in srgb, var(--color-text) 55%, transparent)";
   const dim70 = "color-mix(in srgb, var(--color-text) 78%, transparent)";
 
-  // Selecting (or re-selecting) a sample bumps `session` so the effect below
-  // always restarts the playback, even when the visitor triggers the same
-  // contract twice in a row. The initial demo state (fresh vs. already-final
-  // for reduced motion) is decided here, synchronously with the click/drop,
-  // rather than inside the effect.
+  const clearTimers = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+  };
+
+  useEffect(() => clearTimers, []);
+
+  // Picking (or re-picking) a sample always lands on the confirm card first —
+  // scanning only starts once the visitor clicks "Scan", same as a real
+  // upload waits for "Continue".
   const trigger = (id: string) => {
     const contract = SAMPLE_CONTRACTS.find((c) => c.id === id);
     if (!contract) return;
+    clearTimers();
     setActiveId(id);
-    setDemo(prefersReducedMotion() ? finalState(contract) : freshState());
-    setSession((s) => s + 1);
+    setFlowPhase("confirm");
     requestAnimationFrame(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
   };
 
-  useEffect(() => {
-    if (!active || prefersReducedMotion()) return;
+  const startScan = () => {
+    clearTimers();
+    setScanStepsDone(0);
+    setScanPhase("scanning");
+    setFlowPhase("scanning");
 
-    const clear = () => {
-      timers.current.forEach(clearTimeout);
-      timers.current = [];
-    };
+    if (prefersReducedMotion()) {
+      setScanStepsDone(SAMPLE_SCAN_STEPS);
+      setScanPhase("complete");
+      return;
+    }
 
-    clear();
+    for (let i = 1; i <= SAMPLE_SCAN_STEPS; i++) {
+      timers.current.push(setTimeout(() => setScanStepsDone(i), i * SAMPLE_SCAN_STEP_DELAY_MS));
+    }
+    timers.current.push(
+      setTimeout(() => setScanPhase("complete"), SAMPLE_SCAN_STEPS * SAMPLE_SCAN_STEP_DELAY_MS + 250)
+    );
+  };
 
-    const schedule = (delay: number, patch: Partial<DemoState>) => {
-      timers.current.push(setTimeout(() => setDemo((s) => ({ ...s, ...patch })), delay));
-    };
+  const viewResults = () => {
+    setAnalyzedAt(new Date());
+    setFlowPhase("results");
+  };
 
-    const scanPages = active.pages;
-    const fields = active.fields;
-    const askQ = active.askQ;
-
-    schedule(300, { file: true });
-    schedule(800, { step: 1 });
-    for (let p = 1; p <= scanPages; p++) schedule(800 + p * 32, { scanPage: p });
-    const scanEnd = 800 + scanPages * 32;
-    schedule(scanEnd + 200, { done: true, step: 2 });
-    for (let i = 1; i <= fields.length; i++) schedule(scanEnd + 400 + i * 380, { nf: i });
-    const fieldsEnd = scanEnd + 400 + fields.length * 380;
-    schedule(fieldsEnd + 500, { step: 3 });
-    for (let i = 1; i <= askQ.length; i++) schedule(fieldsEnd + 700 + i * 26, { typed: i });
-    const typedEnd = fieldsEnd + 700 + askQ.length * 26;
-    schedule(typedEnd + 250, { thinking: true });
-    schedule(typedEnd + 1350, { thinking: false, answer: true });
-    schedule(typedEnd + 1700, { acite: true });
-
-    return clear;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, session]);
+  const backToPicker = () => {
+    clearTimers();
+    setFlowPhase(null);
+    setActiveId(null);
+    document.getElementById("sample-scan")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const handleCardDragStart = (e: DragEvent<HTMLDivElement>, id: string) => {
     e.dataTransfer.setData(SAMPLE_DRAG_TYPE, id);
@@ -153,6 +142,7 @@ export default function SampleScanSection() {
   // Only ever inspects our own custom type. A real file drag reports type
   // "Files", never SAMPLE_DRAG_TYPE, so this intentionally does nothing for
   // it — no preventDefault, no drop handler fires, browser default applies.
+  const [isDropTarget, setIsDropTarget] = useState(false);
   const handleZoneDragOver = (e: DragEvent<HTMLDivElement>) => {
     if (!e.dataTransfer.types.includes(SAMPLE_DRAG_TYPE)) return;
     e.preventDefault();
@@ -175,18 +165,6 @@ export default function SampleScanSection() {
     e.target.value = "";
     trigger(activeId ?? SAMPLE_CONTRACTS[0].id);
   };
-
-  const scanCaption = active && demo.done ? "Analysis" : demo.step >= 1 ? "Scanning" : "Uploading";
-  const scanLabel =
-    active &&
-    (demo.done
-      ? "Scan complete — analyzed in 2.8s"
-      : demo.step >= 1
-        ? `Scanning page ${demo.scanPage} of ${active.pages}…`
-        : "Uploading…");
-  const scanPct = active ? Math.round((demo.scanPage / active.pages) * 100) : 0;
-  const statusLabel = demo.done ? "Analyzed" : demo.file ? "Processing" : "Ready";
-  const caretOn = active != null && demo.step >= 3 && demo.typed < active.askQ.length;
 
   return (
     <section id="sample-scan" data-screen-label="Sample scan" style={{ padding: "88px 0 32px" }}>
@@ -317,146 +295,74 @@ export default function SampleScanSection() {
         </div>
       </div>
 
-      {/* Scan / results playback */}
-      {active && (
+      {/* Confirm card — simple, deliberately not a shared component. Shown
+          once a sample is picked, before any scanning starts. */}
+      {active && flowPhase === "confirm" && (
         <div ref={panelRef} className="blueprint" style={{ marginTop: 28, background: "var(--color-bg)", scrollMarginTop: 88 }}>
           <i className="corner tl" />
           <i className="corner tr" />
           <i className="corner bl" />
           <i className="corner br" />
+          <div style={{ display: "flex", minHeight: 180, flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: "40px 28px", textAlign: "center" }}>
+            <FileGlyph style={{ opacity: 0.7 }} />
+            <div>
+              <p style={{ fontWeight: 600, fontSize: 16, margin: 0 }}>{active.filename}</p>
+              <p style={{ fontSize: 13, margin: "4px 0 0", color: dim }}>{active.pages} pages</p>
+            </div>
+            <button type="button" className="btn btn-primary" style={{ marginTop: 4 }} onClick={startScan}>
+              Scan
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Real scan loading screen, fed the sample's pre-generated step count
+          instead of a live /api/analyze stream — same component, same
+          checklist, just resolves on a short local timer. */}
+      {active && flowPhase === "scanning" && (
+        <div style={{ marginTop: 28 }}>
+          <ScanningView
+            fileName={active.filename}
+            pageCount={active.pages}
+            stepsDone={scanStepsDone}
+            phase={scanPhase}
+            onViewResults={viewResults}
+          />
+        </div>
+      )}
+
+      {/* Real results view, fed the sample's pre-generated analysis. */}
+      {active && flowPhase === "results" && (
+        <div style={{ marginTop: 28 }}>
           <div
             style={{
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              gap: 16,
+              gap: 12,
               flexWrap: "wrap",
-              borderBottom: "1px solid var(--color-divider)",
               padding: "12px 20px",
+              border: "1px solid var(--color-divider)",
+              borderBottom: "none",
+              background: "color-mix(in srgb, var(--color-accent) 8%, transparent)",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <FileGlyph style={{ flex: "none", opacity: 0.6 }} />
-              <span style={{ fontSize: 13, fontWeight: 600 }}>{active.filename}</span>
-              <span style={{ fontSize: 12, color: dim, fontFeatureSettings: "'tnum' 1" }}>{active.pages} pages</span>
-            </div>
             <span className="tag tag-outline" style={{ gap: 6, display: "inline-flex", alignItems: "center" }}>
               <span style={{ width: 6, height: 6, background: "var(--color-accent)", flex: "none" }} />
-              {statusLabel}
+              Sample analysis
             </span>
+            <button type="button" className="btn btn-ghost" style={{ fontSize: 13, padding: 0 }} onClick={backToPicker}>
+              ← Try another sample
+            </button>
           </div>
-
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "14px 20px", borderBottom: "1px solid var(--color-divider)" }}>
-            {STEP_LABELS.map((label, i) => {
-              const on = demo.step >= i && demo.file;
-              const cur = demo.step === i && demo.file;
-              const ink = on ? (cur ? "var(--color-accent-700)" : "var(--color-text)") : dim;
-              const bc = cur ? "var(--color-accent)" : "var(--color-divider)";
-              const bg = cur ? "color-mix(in srgb, var(--color-accent) 8%, transparent)" : "transparent";
-              return (
-                <span
-                  key={label}
-                  style={{
-                    fontSize: 12,
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
-                    fontWeight: 600,
-                    padding: "5px 12px",
-                    border: `1px solid ${bc}`,
-                    color: ink,
-                    background: bg,
-                    transition: "all 250ms cubic-bezier(0.4,0,0.2,1)",
-                  }}
-                >
-                  {label}
-                </span>
-              );
-            })}
-          </div>
-
-          <div style={{ padding: "22px 20px 26px", minHeight: 340 }}>
-            {demo.file && (
-              <div className="ci-fade">
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-                  <span style={{ fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 600, color: dim }}>
-                    {scanCaption}
-                  </span>
-                  <span style={{ fontSize: 12, color: "color-mix(in srgb, var(--color-text) 70%, transparent)", fontFeatureSettings: "'tnum' 1" }}>
-                    {scanLabel}
-                  </span>
-                </div>
-                <div style={{ height: 2, background: "color-mix(in srgb, var(--color-text) 10%, transparent)", marginBottom: 24 }}>
-                  <div style={{ height: "100%", background: "var(--color-accent)", width: `${scanPct}%`, transition: "width 60ms linear" }} />
-                </div>
-              </div>
-            )}
-
-            {active.fields.slice(0, demo.nf).map((f) => (
-              <div key={f.l} className="ci-fade" style={{ padding: "12px 0", borderBottom: "1px solid var(--color-divider)" }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 600, color: dim }}>
-                    {f.l}
-                  </span>
-                  <span
-                    className="ci-pop"
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 5,
-                      border: "1px solid var(--color-divider)",
-                      padding: "2px 8px",
-                      fontSize: 11,
-                      color: "color-mix(in srgb, var(--color-text) 70%, transparent)",
-                      maxWidth: "100%",
-                    }}
-                  >
-                    <FileGlyph small style={{ flex: "none", opacity: 0.7 }} />
-                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.c}</span>
-                  </span>
-                </div>
-                <span style={{ fontFamily: "var(--font-heading)", fontWeight: 600, fontSize: 19, lineHeight: 1.25, overflowWrap: "break-word" }}>
-                  {f.v}
-                </span>
-              </div>
-            ))}
-
-            {demo.step >= 3 && (
-              <div className="ci-fade" style={{ marginTop: 22 }}>
-                <span style={{ display: "block", fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 600, color: dim, marginBottom: 10 }}>
-                  Ask your contract
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, border: "1px solid var(--color-divider)", padding: "11px 14px" }}>
-                  <span style={{ width: 6, height: 6, background: "var(--color-accent)", flex: "none" }} />
-                  <span style={{ fontSize: 14, whiteSpace: "pre-wrap" }}>{active.askQ.slice(0, demo.typed)}</span>
-                  {caretOn && <span className="ci-caret" style={{ display: "inline-block", width: 2, height: 15, background: "var(--color-text)" }} />}
-                </div>
-                {demo.thinking && <p style={{ margin: "12px 2px 0", fontSize: 13, color: dim }}>Reading the document…</p>}
-                {demo.answer && (
-                  <div className="ci-fade" style={{ marginTop: 12, border: "1px solid var(--color-divider)", padding: "14px 16px" }}>
-                    <p style={{ margin: 0, fontSize: 14, lineHeight: "22px" }}>{active.answerText}</p>
-                    {demo.acite && (
-                      <span
-                        className="ci-pop"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 5,
-                          border: "1px solid var(--color-divider)",
-                          padding: "2px 8px",
-                          fontSize: 11,
-                          color: "color-mix(in srgb, var(--color-text) 70%, transparent)",
-                          marginTop: 10,
-                        }}
-                      >
-                        <FileGlyph small style={{ flex: "none", opacity: 0.7 }} />
-                        {active.answerCite}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <ResultsView
+            analysis={active.analysis}
+            fileName={active.filename}
+            analyzedAt={analyzedAt}
+            onOpenCitation={noop}
+            onExportPdf={noop}
+            onAskContract={noop}
+          />
         </div>
       )}
     </section>

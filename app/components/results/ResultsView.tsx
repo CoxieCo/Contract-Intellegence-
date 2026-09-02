@@ -300,6 +300,7 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
             component), so a soft navigation to "/" would leave that state
             untouched and do nothing visible — a full load is what actually
             returns to the homepage, the way a site logo is expected to. */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- a full load is the point (see comment above); next/link would soft-navigate and leave the results state up */}
         <a href="/" className="nav-brand" style={{ color: "var(--color-text)", textDecoration: "none" }}>
           Contract Intelligence
         </a>

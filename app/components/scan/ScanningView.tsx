@@ -84,6 +84,7 @@ export default function ScanningView({ fileName, pageCount, stepsDone, phase, on
         {/* Plain <a>, not next/link — same reason as ResultsView's brand:
             this view is rendered inside the "/" route, so only a full load
             actually returns to the homepage. */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- a full load is the point (see comment above); next/link would soft-navigate and leave this view up */}
         <a href="/" className="nav-brand" style={{ color: "var(--color-text)", textDecoration: "none" }}>
           Contract Intelligence
         </a>

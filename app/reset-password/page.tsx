@@ -1,18 +1,18 @@
 import Link from "next/link";
-import SignInForm from "@/app/components/auth/SignInForm";
+import ResetPasswordForm from "@/app/components/auth/ResetPasswordForm";
 import "../components/results/results.css";
 
-// PLACEHOLDER route — see app/components/auth/SignInForm.tsx.
+// Where the password-recovery email link lands. Supabase verifies the emailed
+// token at /auth/callback (?type=recovery), which writes the session cookies
+// and redirects here — see app/auth/callback/route.ts. This page then lets the
+// user actually choose a new password, which nothing did before (the link
+// used to authenticate a recovery session and then drop the user on the
+// homepage with no form).
 //
-// A Server Component purely so the `?error=` that /auth/callback redirects
-// here with can be read without a client-side Suspense boundary.
-export default async function SignInPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ error?: string; next?: string; notice?: string }>;
-}) {
-  const { error, next, notice } = await searchParams;
-
+// Matches the placeholder sign-in page's plain styling on purpose — same
+// .ci-results tokens, same nav — and is expected to be redesigned alongside
+// it later.
+export default function ResetPasswordPage() {
   return (
     <div
       className="ci-results"
@@ -25,7 +25,7 @@ export default async function SignInPage({
       </nav>
       <main style={{ flex: 1, display: "flex", justifyContent: "center", padding: "48px 24px" }}>
         <div style={{ width: "100%", maxWidth: 380 }}>
-          <SignInForm initialError={error} initialNotice={notice} next={next} />
+          <ResetPasswordForm />
         </div>
       </main>
     </div>

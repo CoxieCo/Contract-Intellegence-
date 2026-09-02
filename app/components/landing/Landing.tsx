@@ -146,6 +146,7 @@ export default function Landing(props: LandingProps) {
           padding: "10px clamp(20px,5vw,72px)",
         }}
       >
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the whole app is the "/" route's client component; a plain anchor resets it to the fresh homepage, next/link would just soft-navigate in place */}
         <a href="/" className="nav-brand" style={{ textTransform: "uppercase", letterSpacing: "0.02em", marginRight: "auto", color: "inherit" }}>
           Contract Intelligence
         </a>

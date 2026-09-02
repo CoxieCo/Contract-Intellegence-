@@ -23,7 +23,15 @@ function safeNext(raw: string | undefined): string {
   return raw;
 }
 
-export default function SignInForm({ initialError, next }: { initialError?: string; next?: string }) {
+export default function SignInForm({
+  initialError,
+  initialNotice,
+  next,
+}: {
+  initialError?: string;
+  initialNotice?: string;
+  next?: string;
+}) {
   const router = useRouter();
   const destination = safeNext(next);
   const [mode, setMode] = useState<Mode>("signin");
@@ -31,7 +39,7 @@ export default function SignInForm({ initialError, next }: { initialError?: stri
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError ?? "");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(initialNotice ?? "");
 
   // Both the OAuth round trip and the emailed confirmation link come back to
   // /auth/callback, which is where the session cookie actually gets written.
@@ -80,6 +88,31 @@ export default function SignInForm({ initialError, next }: { initialError?: stri
     // The server needs to re-render with the new session cookie; without this
     // the dashboard can paint from a cached signed-out render.
     router.refresh();
+  }
+
+  async function handleForgotPassword() {
+    if (!email) {
+      setError("Enter your email above first, then choose reset.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+
+    const supabase = createClient();
+    // Routes through /auth/callback like every other email link — it verifies
+    // the recovery token, writes the session cookies, then lands on
+    // /reset-password (see app/auth/callback/route.ts and app/reset-password).
+    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent("/reset-password")}`;
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    setBusy(false);
+
+    if (resetError) {
+      setError(resetError.message);
+      return;
+    }
+    // Deliberately not confirming whether the address has an account.
+    setNotice(`If an account exists for ${email}, a password reset link is on its way.`);
   }
 
   async function handleGoogle() {
@@ -154,6 +187,18 @@ export default function SignInForm({ initialError, next }: { initialError?: stri
           {busy ? "Working…" : mode === "signin" ? "Sign in" : "Sign up"}
         </button>
       </form>
+
+      {mode === "signin" && (
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={handleForgotPassword}
+          disabled={busy}
+          style={{ fontSize: 13, alignSelf: "flex-start", padding: 0 }}
+        >
+          Forgot your password?
+        </button>
+      )}
 
       {/* Its own section, set apart from the form above — a labeled divider
           rather than just another item in the button stack, per Google's own

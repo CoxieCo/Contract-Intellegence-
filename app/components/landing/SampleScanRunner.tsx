@@ -12,10 +12,12 @@ import { useEffect, useState } from "react";
 import ScanningView, { ScanPhase } from "../scan/ScanningView";
 import type { SampleContract } from "./sampleContracts";
 
-// Five steps (see SCAN_STEPS in ScanningView) — kept a touch slower than a
-// blink each so the sequence reads as distinct rows completing, not a jump.
-const STEP_INTERVAL_MS = 620;
-const COMPLETE_DELAY_MS = 450;
+// Five steps (see SCAN_STEPS in ScanningView) — paced so the sequence reads
+// as distinct rows completing one by one, not a jump. Deliberately unhurried
+// (roughly double an earlier, too-quick pass) so each row is clearly its own
+// beat.
+const STEP_INTERVAL_MS = 1240;
+const COMPLETE_DELAY_MS = 900;
 
 export default function SampleScanRunner({
   sample,

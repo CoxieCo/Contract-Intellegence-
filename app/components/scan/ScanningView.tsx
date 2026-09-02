@@ -81,7 +81,12 @@ export default function ScanningView({ fileName, pageCount, stepsDone, phase, on
   return (
     <div className="ci-scan" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--color-bg)", color: "var(--color-text)" }}>
       <nav className="nav" style={{ borderBottom: "1px solid var(--color-divider)" }}>
-        <span className="nav-brand">Contract Intelligence</span>
+        {/* Plain <a>, not next/link — same reason as ResultsView's brand:
+            this view is rendered inside the "/" route, so only a full load
+            actually returns to the homepage. */}
+        <a href="/" className="nav-brand" style={{ color: "var(--color-text)", textDecoration: "none" }}>
+          Contract Intelligence
+        </a>
       </nav>
 
       <main style={{ flex: 1, display: "flex", justifyContent: "center", padding: "56px 24px 64px" }}>

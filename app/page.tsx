@@ -794,7 +794,6 @@ export default function Home() {
             <span style={{ width: 6, height: 6, background: "#5980a6", flex: "none" }} />
             Sample analysis
           </span>
-          <span style={{ opacity: 0.7 }}>Genuine extraction output from a demo contract — nothing of yours was analyzed.</span>
           <button
             type="button"
             onClick={exitSample}

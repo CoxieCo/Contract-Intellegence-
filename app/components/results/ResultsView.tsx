@@ -295,7 +295,14 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
   return (
     <div className="ci-results" style={{ minHeight: "100vh", background: "var(--color-bg)", color: "var(--color-text)", display: "flex", flexDirection: "column" }}>
       <nav className="nav" style={{ borderBottom: "1px solid var(--color-divider)", flex: "none", position: "sticky", top: 0, zIndex: 50, background: "var(--color-bg)" }}>
-        <span className="nav-brand">Contract Intelligence</span>
+        {/* A plain <a>, not next/link: this view is rendered inside the "/"
+            route by app/page.tsx (results state lives in that client
+            component), so a soft navigation to "/" would leave that state
+            untouched and do nothing visible — a full load is what actually
+            returns to the homepage, the way a site logo is expected to. */}
+        <a href="/" className="nav-brand" style={{ color: "var(--color-text)", textDecoration: "none" }}>
+          Contract Intelligence
+        </a>
         <AuthStatus />
         <Link href="/dashboard" className="btn btn-primary blueprint">
           <i className="corner tl" />

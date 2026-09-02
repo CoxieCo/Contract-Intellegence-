@@ -146,9 +146,9 @@ export default function Landing(props: LandingProps) {
           padding: "10px clamp(20px,5vw,72px)",
         }}
       >
-        <span className="nav-brand" style={{ textTransform: "uppercase", letterSpacing: "0.02em", marginRight: "auto" }}>
+        <a href="/" className="nav-brand" style={{ textTransform: "uppercase", letterSpacing: "0.02em", marginRight: "auto", color: "inherit" }}>
           Contract Intelligence
-        </span>
+        </a>
         <div className="nav-links">
           <a href="#product">Product</a>
           <a href="#how">How It Works</a>

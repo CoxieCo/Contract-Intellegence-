@@ -270,7 +270,12 @@ export default function AskContractView({
   return (
     <div className="ci-ask" style={{ minHeight: "100vh", background: "var(--color-bg)", color: "var(--color-text)", display: "flex", flexDirection: "column" }}>
       <nav className="nav" style={{ borderBottom: "1px solid var(--color-divider)" }}>
-        <span className="nav-brand">Contract Intelligence</span>
+        {/* Plain <a>, not next/link — same reason as ResultsView's brand:
+            this page is rendered inside the "/" route, so only a full load
+            actually returns to the homepage. */}
+        <a href="/" className="nav-brand" style={{ color: "var(--color-text)", textDecoration: "none" }}>
+          Contract Intelligence
+        </a>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           <AuthStatus />
           <button type="button" className="btn btn-primary blueprint" style={{ whiteSpace: "nowrap" }} onClick={onBack}>

@@ -735,6 +735,7 @@ export default function Landing(props: LandingProps) {
                 LEGAL
               </span>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
+                <Link href="/security">Security &amp; Trust</Link>
                 <a href="#faq">Privacy Policy</a>
                 <a href="#faq">Terms of Service</a>
               </div>

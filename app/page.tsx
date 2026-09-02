@@ -10,6 +10,8 @@ import {
 import { clearLiveAnalysisFile, getLiveAnalysisFile, setLiveAnalysisFile } from "@/lib/liveFileSession";
 import ContractSummaryPrint from "./components/ContractSummaryPrint";
 import Landing from "./components/landing/Landing";
+import SampleScanRunner from "./components/landing/SampleScanRunner";
+import { type SampleContract } from "./components/landing/sampleContracts";
 import ScanningView from "./components/scan/ScanningView";
 import ResultsView, { ResultSectionId, ResultsViewHandle } from "./components/results/ResultsView";
 import AskContractView, { AskHistoryEntry } from "./components/ask/AskContractView";
@@ -213,6 +215,7 @@ function parsePartialAnalysis(text: string): Partial<ContractAnalysis> {
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadSectionRef = useRef<HTMLDivElement>(null);
+  const sampleSectionRef = useRef<HTMLDivElement>(null);
   const resultsViewRef = useRef<ResultsViewHandle>(null);
 
   const [appState, setAppState] = useState<AppState>("idle");
@@ -230,6 +233,14 @@ export default function Home() {
   const [pageCount, setPageCount] = useState<number | null>(null);
   const [scanStepsDone, setScanStepsDone] = useState(0);
   const [scanPhase, setScanPhase] = useState<"scanning" | "complete">("scanning");
+
+  // The Sample Scan section's flow (see app/components/landing/
+  // SampleScanSection). "confirm" keeps Landing on screen with a confirm
+  // card in the section; "scanning" and "results" take over the whole page
+  // the same way a real upload does, reusing ScanningView and ResultsView
+  // with the sample's genuine pre-generated data.
+  const [sampleContract, setSampleContract] = useState<SampleContract | null>(null);
+  const [sampleStage, setSampleStage] = useState<"confirm" | "scanning" | "results">("confirm");
 
   // Set only when the results view was restored from the dashboard (a past
   // analysis, or the current one revisited) rather than a live upload — there
@@ -267,6 +278,73 @@ export default function Home() {
 
   const scrollToUpload = () => {
     uploadSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  // ----- Sample Scan flow -----
+  // Entirely separate from the real upload above: no File, no /api/analyze
+  // call, no persistence — every stage runs off the static sample data.
+
+  const inSampleResults = sampleContract !== null && sampleStage === "results";
+
+  const scrollToSampleSection = () => {
+    requestAnimationFrame(() =>
+      sampleSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    );
+  };
+
+  const pickSample = (picked: SampleContract) => {
+    setError("");
+    setSampleContract(picked);
+    setSampleStage("confirm");
+    scrollToSampleSection();
+  };
+
+  const cancelSample = () => {
+    setSampleContract(null);
+    setSampleStage("confirm");
+  };
+
+  const startSampleScan = () => {
+    if (!sampleContract) return;
+    setSampleStage("scanning");
+    window.scrollTo({ top: 0 });
+  };
+
+  // The sample equivalent of viewResults() — ScanningView's checklist has
+  // finished (driven by SampleScanRunner's timer), so load the sample's real
+  // analysis into the same state the live results view reads from. contractText
+  // is the genuine page-marked text, so "Ask your contract" works here too.
+  const sampleViewResults = () => {
+    if (!sampleContract) return;
+    setViewerCitation(null);
+    setAskHistory([]);
+    setAskError("");
+    setAskPendingQuestion(null);
+    setViewingAsk(false);
+    setAskSection("overview");
+    setSelectedFile(null);
+    setAnalysis(sampleContract.analysis);
+    setContractText(sampleContract.contractText);
+    setArchivedFileName(sampleContract.fileName);
+    setAnalyzedAt(new Date());
+    setSampleStage("results");
+    window.scrollTo({ top: 0 });
+  };
+
+  const exitSample = () => {
+    setSampleContract(null);
+    setSampleStage("confirm");
+    setAnalysis(null);
+    setContractText("");
+    setArchivedFileName(null);
+    setAnalyzedAt(null);
+    setViewingAsk(false);
+    setViewerCitation(null);
+    setAskHistory([]);
+    setAskError("");
+    setAskPendingQuestion(null);
+    setAskSection("overview");
+    scrollToSampleSection();
   };
 
   // ----- Restore a past analysis requested from the dashboard -----
@@ -624,23 +702,35 @@ export default function Home() {
     <main className="min-h-screen bg-background text-foreground">
       {/* Pre-scan marketing/landing page — its own light theme, own nav/hero/
           upload/footer. Swapped out entirely once a scan starts. */}
-      {(appState === "idle" || appState === "fileSelected") && (
-        <Landing
-          appState={appState}
-          selectedFile={selectedFile}
-          isDragging={isDragging}
-          error={error}
-          fileInputRef={fileInputRef}
-          uploadSectionRef={uploadSectionRef}
-          onFileInput={handleFileInput}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onRemoveClick={removeFile}
-          onContinueClick={handleContinue}
-          onScanCta={scrollToUpload}
-          formatFileSize={formatFileSize}
-        />
+      {(appState === "idle" || appState === "fileSelected") &&
+        !(sampleContract && sampleStage !== "confirm") && (
+          <Landing
+            appState={appState}
+            selectedFile={selectedFile}
+            isDragging={isDragging}
+            error={error}
+            fileInputRef={fileInputRef}
+            uploadSectionRef={uploadSectionRef}
+            onFileInput={handleFileInput}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onRemoveClick={removeFile}
+            onContinueClick={handleContinue}
+            onScanCta={scrollToUpload}
+            formatFileSize={formatFileSize}
+            sampleSectionRef={sampleSectionRef}
+            pickedSample={sampleStage === "confirm" ? sampleContract : null}
+            onPickSample={pickSample}
+            onScanSample={startSampleScan}
+            onCancelSample={cancelSample}
+          />
+        )}
+
+      {/* Sample scan — the real ScanningView, its checklist walked by a timer
+          over the sample's pre-generated data (see SampleScanRunner). */}
+      {sampleContract && sampleStage === "scanning" && (
+        <SampleScanRunner sample={sampleContract} onViewResults={sampleViewResults} />
       )}
 
       {/* Full-screen scan loading view — same light "Industry" theme, imported
@@ -663,7 +753,7 @@ export default function Home() {
           whenever the Ask Your Contract page is showing instead, so its
           sidebar/section state survives the round trip and resultsViewRef
           is always safe to call from AskContractView's citations. */}
-      {appState === "results" && analysis && (
+      {(appState === "results" || inSampleResults) && analysis && (
         <div style={{ display: viewingAsk ? "none" : "block" }}>
           <ResultsView
             ref={resultsViewRef}
@@ -678,11 +768,56 @@ export default function Home() {
         </div>
       )}
 
+      {/* Sample-analysis badge + a way back to the picker — only over the
+          sample results, and out of the way of the Ask page's own footer. */}
+      {inSampleResults && !viewingAsk && (
+        <div
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 60,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 14,
+            flexWrap: "wrap",
+            padding: "10px 16px",
+            background: "#1d1f20",
+            color: "#f2f2f3",
+            fontFamily: "var(--font-barlow), system-ui, sans-serif",
+            fontSize: 13,
+          }}
+        >
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            <span style={{ width: 6, height: 6, background: "#5980a6", flex: "none" }} />
+            Sample analysis
+          </span>
+          <span style={{ opacity: 0.7 }}>Genuine extraction output from a demo contract — nothing of yours was analyzed.</span>
+          <button
+            type="button"
+            onClick={exitSample}
+            style={{
+              font: "inherit",
+              fontWeight: 600,
+              color: "#f2f2f3",
+              background: "transparent",
+              border: "1px solid rgba(242,242,243,0.4)",
+              padding: "5px 12px",
+              cursor: "pointer",
+            }}
+          >
+            ← Try another sample
+          </button>
+        </div>
+      )}
+
       {/* Ask Your Contract — full-screen page imported from the same-named
           design, replacing the old Cmd+K command palette entirely (its
           deterministic "jump to a field" search is already covered by the
           results sidebar). */}
-      {appState === "results" && analysis && viewingAsk && (
+      {(appState === "results" || inSampleResults) && analysis && viewingAsk && (
         <AskContractView
           fileName={selectedFile ? selectedFile.name : (archivedFileName ?? "Contract")}
           section={askSection}

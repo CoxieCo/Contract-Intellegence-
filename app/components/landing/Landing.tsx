@@ -11,6 +11,7 @@ import Link from "next/link";
 import "./landing.css";
 import HeroDemo from "./HeroDemo";
 import SampleScanSection from "./SampleScanSection";
+import type { SampleContract } from "./sampleContracts";
 import UploadPanel, { UploadAppState } from "./UploadPanel";
 import CoverageAccordion from "./CoverageAccordion";
 import FaqAccordion from "./FaqAccordion";
@@ -32,6 +33,15 @@ interface LandingProps {
   onContinueClick: () => void;
   onScanCta: () => void;
   formatFileSize: (bytes: number) => string;
+  // Sample Scan section — a separate, no-upload entry point (see
+  // SampleScanSection). All of its run state lives in app/page.tsx alongside
+  // the real scan flow, so picking a sample can take over the whole page
+  // exactly the way a real upload does.
+  sampleSectionRef: RefObject<HTMLDivElement | null>;
+  pickedSample: SampleContract | null;
+  onPickSample: (sample: SampleContract) => void;
+  onScanSample: () => void;
+  onCancelSample: () => void;
 }
 
 const PRICING_TIERS = [
@@ -177,9 +187,6 @@ export default function Landing(props: LandingProps) {
           <HeroDemo />
           <p style={{ margin: "12px 2px 0", fontSize: 12, color: dim }}>Shown with a sample contract for illustration.</p>
         </section>
-
-        {/* SAMPLE SCAN */}
-        <SampleScanSection />
 
         {/* FEATURES */}
         <section id="features" data-screen-label="Features" style={{ padding: "72px 0 24px" }}>
@@ -512,6 +519,17 @@ export default function Landing(props: LandingProps) {
             <button type="button" className="btn btn-primary" onClick={onScanCta}>Scan a Contract</button>
           </div>
         </section>
+
+        {/* SAMPLE SCAN — a second, no-upload entry point that runs the real
+            ScanningView + ResultsView on pre-generated sample data. */}
+        <div ref={props.sampleSectionRef} style={{ scrollMarginTop: 88 }}>
+          <SampleScanSection
+            pickedSample={props.pickedSample}
+            onPick={props.onPickSample}
+            onScan={props.onScanSample}
+            onCancel={props.onCancelSample}
+          />
+        </div>
 
         {/* PRICING */}
         <section id="pricing" data-screen-label="Pricing" style={{ padding: "88px 0 32px" }}>

@@ -1,13 +1,22 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { IconAlertTriangle, IconCalendar, IconFile, IconFileCheck, IconHelpCircle, IconList } from "./icons";
 import type { ResultSectionId } from "./ResultsView";
 
-interface SidebarProps {
+// A custom "Jump to" list (used by SubcontractResultsView). Without one, the
+// sidebar shows the general-contract sections exactly as it always has.
+export interface SidebarItem<S extends string> {
+  id: S;
+  label: string;
+  icon: ReactNode;
+}
+
+interface SidebarProps<S extends string> {
   collapsed: boolean;
   onToggleCollapsed: () => void;
-  onJump: (section: ResultSectionId, fieldKey?: string) => void;
+  onJump: (section: S, fieldKey?: string) => void;
+  items?: SidebarItem<S>[];
 }
 
 function ChevronLeft({ collapsed }: { collapsed: boolean }) {
@@ -28,7 +37,7 @@ function ChevronLeft({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-export default function Sidebar({ collapsed, onToggleCollapsed, onJump }: SidebarProps) {
+export default function Sidebar<S extends string = ResultSectionId>({ collapsed, onToggleCollapsed, onJump, items }: SidebarProps<S>) {
   const labelStyle: CSSProperties = collapsed ? { display: "none" } : {};
   const subListStyle: CSSProperties = collapsed
     ? { display: "none" }
@@ -66,6 +75,32 @@ export default function Sidebar({ collapsed, onToggleCollapsed, onJump }: Sideba
           Jump to
         </p>
 
+        {items ? (
+          items.map((item) => (
+            <button key={item.id} type="button" className="sidebar-link" title={item.label} onClick={() => onJump(item.id)}>
+              {item.icon}
+              <span style={{ minWidth: 0, whiteSpace: "nowrap", ...labelStyle }}>{item.label}</span>
+            </button>
+          ))
+        ) : (
+          <ContractSidebarLinks labelStyle={labelStyle} subListStyle={subListStyle} onJump={onJump as (section: ResultSectionId, fieldKey?: string) => void} />
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function ContractSidebarLinks({
+  labelStyle,
+  subListStyle,
+  onJump,
+}: {
+  labelStyle: CSSProperties;
+  subListStyle: CSSProperties;
+  onJump: (section: ResultSectionId, fieldKey?: string) => void;
+}) {
+  return (
+    <>
         <button type="button" className="sidebar-link" title="Contract Identity" onClick={() => onJump("overview")}>
           <IconFile size={16} />
           <span style={{ minWidth: 0, whiteSpace: "nowrap", ...labelStyle }}>Contract Identity</span>
@@ -116,7 +151,6 @@ export default function Sidebar({ collapsed, onToggleCollapsed, onJump }: Sideba
           <IconHelpCircle size={16} />
           <span style={{ minWidth: 0, whiteSpace: "nowrap", ...labelStyle }}>Unknown Fields</span>
         </button>
-      </div>
-    </aside>
+    </>
   );
 }

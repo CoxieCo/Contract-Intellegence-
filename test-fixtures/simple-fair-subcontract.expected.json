@@ -1,0 +1,216 @@
+{
+  "file": "simple-fair-subcontract.pdf",
+  "pageCount": 4,
+  "expected": {
+    "parties.headContractorName": {
+      "pages": [
+        1
+      ],
+      "phrases": [
+        "Placeholder Builders"
+      ]
+    },
+    "parties.headContractorABN": {
+      "pages": [
+        1
+      ],
+      "phrases": [
+        "00 000 000 001"
+      ]
+    },
+    "parties.subcontractorName": {
+      "pages": [
+        1
+      ],
+      "phrases": [
+        "Testcase Plumbing"
+      ]
+    },
+    "parties.siteAddress": {
+      "pages": [
+        1
+      ],
+      "phrases": [
+        "1 Example Street"
+      ]
+    },
+    "parties.contractSum": {
+      "pages": [
+        1
+      ],
+      "phrases": [
+        "$250,000.00"
+      ]
+    },
+    "progressClaims.claimDayOrReferenceDates": {
+      "pages": [
+        2
+      ],
+      "phrases": [
+        "25th day of each month"
+      ]
+    },
+    "progressClaims.claimRecipient": {
+      "pages": [
+        2
+      ],
+      "phrases": [
+        "Contract Administrator"
+      ]
+    },
+    "progressClaims.claimMethod": {
+      "pages": [
+        2
+      ],
+      "phrases": [
+        "by email"
+      ]
+    },
+    "progressClaims.requiredSupportingDocs": {
+      "pages": [
+        2
+      ],
+      "phrases": [
+        "itemised breakdown"
+      ]
+    },
+    "paymentTerms.paymentPeriodAsWritten": {
+      "pages": [
+        2
+      ],
+      "phrases": [
+        "10 Business Days after receiving the progress claim"
+      ]
+    },
+    "paymentTerms.businessOrCalendarDays": {
+      "pages": [
+        1,
+        2
+      ],
+      "phrases": [
+        "Business Day"
+      ]
+    },
+    "retention.retentionPercent": {
+      "pages": [
+        3
+      ],
+      "phrases": [
+        "5% of each progress payment"
+      ]
+    },
+    "retention.retentionCap": {
+      "pages": [
+        3
+      ],
+      "phrases": [
+        "must not exceed 5% of the Contract Sum"
+      ]
+    },
+    "retention.retentionReleaseTriggers": {
+      "pages": [
+        3
+      ],
+      "phrases": [
+        "released at Practical Completion"
+      ]
+    },
+    "defectsLiability.defectsLiabilityPeriod": {
+      "pages": [
+        3
+      ],
+      "phrases": [
+        "12 months from the date of Practical Completion"
+      ]
+    },
+    "timeBars.variationNoticeDeadline": {
+      "pages": [
+        3
+      ],
+      "phrases": [
+        "within 10 Business Days of receiving the direction"
+      ]
+    },
+    "timeBars.extensionOfTimeNoticeDeadline": {
+      "pages": [
+        3
+      ],
+      "phrases": [
+        "extension of time within 10 Business Days"
+      ]
+    },
+    "timeBars.delayClaimNoticeDeadline": {
+      "pages": [
+        3
+      ],
+      "phrases": [
+        "15 Business Days after the delay ends"
+      ]
+    },
+    "timeBars.otherNoticeDeadlines": {
+      "list": [
+        {
+          "pages": [
+            3
+          ],
+          "phrases": [
+            "latent condition within 5 Business Days"
+          ]
+        }
+      ]
+    },
+    "insuranceAndLicences.requiredInsurances": {
+      "list": [
+        {
+          "pages": [
+            4
+          ],
+          "phrases": [
+            "public liability"
+          ],
+          "amount": "$20,000,000"
+        },
+        {
+          "pages": [
+            4
+          ],
+          "phrases": [
+            "workers' compensation"
+          ]
+        }
+      ]
+    },
+    "insuranceAndLicences.licenceRequirements": {
+      "pages": [
+        4
+      ],
+      "phrases": [
+        "QBCC licence"
+      ]
+    },
+    "termination.terminationRights": {
+      "pages": [
+        4
+      ],
+      "phrases": [
+        "substantial breach"
+      ]
+    },
+    "termination.suspensionRights": {
+      "pages": [
+        4
+      ],
+      "phrases": [
+        "may suspend the Subcontract Works"
+      ]
+    },
+    "disputes.disputeResolutionClause": {
+      "pages": [
+        4
+      ],
+      "phrases": [
+        "notice of dispute"
+      ]
+    }
+  }
+}

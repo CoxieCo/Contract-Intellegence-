@@ -1,0 +1,204 @@
+{
+  "file": "tricky-subcontract.pdf",
+  "pageCount": 5,
+  "expected": {
+    "parties.headContractorName": {
+      "pages": [
+        1
+      ],
+      "phrases": [
+        "Hypothetical Constructions"
+      ]
+    },
+    "parties.headContractorABN": {
+      "pages": [
+        1
+      ],
+      "phrases": [
+        "00 000 000 003"
+      ]
+    },
+    "parties.subcontractorName": {
+      "pages": [
+        1
+      ],
+      "phrases": [
+        "Dummy Steel Fixing"
+      ]
+    },
+    "parties.siteAddress": {
+      "pages": [
+        1
+      ],
+      "phrases": [
+        "99 Pretend Road"
+      ]
+    },
+    "parties.contractSum": {
+      "pages": [
+        5
+      ],
+      "phrases": [
+        "$1,480,000.00"
+      ]
+    },
+    "progressClaims.claimDayOrReferenceDates": {
+      "pages": [
+        5
+      ],
+      "phrases": [
+        "20th day of each month"
+      ]
+    },
+    "progressClaims.claimRecipient": {
+      "pages": [
+        2
+      ],
+      "phrases": [
+        "Project Manager"
+      ]
+    },
+    "progressClaims.claimMethod": {
+      "pages": [
+        2
+      ],
+      "phrases": [
+        "online portal"
+      ]
+    },
+    "progressClaims.requiredSupportingDocs": {
+      "pages": [
+        2
+      ],
+      "phrases": [
+        "statutory declaration"
+      ]
+    },
+    "paymentTerms.paymentPeriodAsWritten": {
+      "pages": [
+        5
+      ],
+      "phrases": [
+        "45 days after the end of the month"
+      ],
+      "forbid": [
+        "25 business days"
+      ]
+    },
+    "paymentTerms.businessOrCalendarDays": {
+      "pages": [
+        5
+      ],
+      "phrases": [
+        "45 days"
+      ]
+    },
+    "retention.retentionPercent": {
+      "pages": [
+        5
+      ],
+      "phrases": [
+        "30% of each progress payment"
+      ]
+    },
+    "retention.retentionCap": null,
+    "retention.retentionReleaseTriggers": {
+      "pages": [
+        3
+      ],
+      "phrases": [
+        "expiry of the Defects Liability Period"
+      ]
+    },
+    "defectsLiability.defectsLiabilityPeriod": {
+      "pages": [
+        5
+      ],
+      "phrases": [
+        "12 months from Practical Completion"
+      ]
+    },
+    "timeBars.variationNoticeDeadline": {
+      "pages": [
+        3
+      ],
+      "phrases": [
+        "within 3 days of the direction"
+      ]
+    },
+    "timeBars.extensionOfTimeNoticeDeadline": {
+      "pages": [
+        3
+      ],
+      "phrases": [
+        "within 2 days after the delay commences"
+      ]
+    },
+    "timeBars.delayClaimNoticeDeadline": {
+      "pages": [
+        3
+      ],
+      "phrases": [
+        "within 5 days after the end of the delay"
+      ]
+    },
+    "timeBars.otherNoticeDeadlines": {
+      "list": [
+        {
+          "pages": [
+            3
+          ],
+          "phrases": [
+            "within 7 days after the event"
+          ]
+        }
+      ]
+    },
+    "insuranceAndLicences.requiredInsurances": {
+      "list": [
+        {
+          "pages": [
+            4
+          ],
+          "phrases": [
+            "public liability"
+          ],
+          "amount": "$10,000,000"
+        },
+        {
+          "pages": [
+            4
+          ],
+          "phrases": [
+            "contract works insurance"
+          ]
+        }
+      ]
+    },
+    "insuranceAndLicences.licenceRequirements": {
+      "pages": [
+        4
+      ],
+      "phrases": [
+        "QBCC licence"
+      ]
+    },
+    "termination.terminationRights": {
+      "pages": [
+        4
+      ],
+      "phrases": [
+        "for its convenience"
+      ]
+    },
+    "termination.suspensionRights": null,
+    "disputes.disputeResolutionClause": {
+      "pages": [
+        4
+      ],
+      "phrases": [
+        "arbitration in Brisbane"
+      ]
+    }
+  }
+}

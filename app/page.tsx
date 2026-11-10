@@ -7,13 +7,22 @@ import {
   VIEW_REQUEST_STORAGE_KEY,
   STREAM_CONTRACT_TEXT_DELIMITER,
 } from "@/lib/contract-analysis";
+import {
+  SUBCONTRACT_PARTIAL_KEYS,
+  enforceContractOnly,
+  isSubcontractAnalysis,
+  type DocumentType,
+  type SubcontractAnalysis,
+} from "@/lib/subcontract-analysis";
 import { clearLiveAnalysisFile, getLiveAnalysisFile, setLiveAnalysisFile } from "@/lib/liveFileSession";
 import ContractSummaryPrint from "./components/ContractSummaryPrint";
+import SubcontractSummaryPrint from "./components/SubcontractSummaryPrint";
 import Landing from "./components/landing/Landing";
 import SampleScanRunner from "./components/landing/SampleScanRunner";
 import { type SampleContract } from "./components/landing/sampleContracts";
-import ScanningView from "./components/scan/ScanningView";
+import ScanningView, { SUBCONTRACT_SCAN_STEPS } from "./components/scan/ScanningView";
 import ResultsView, { ResultSectionId, ResultsViewHandle } from "./components/results/ResultsView";
+import SubcontractResultsView from "./components/results/SubcontractResultsView";
 import AskContractView, { AskHistoryEntry } from "./components/ask/AskContractView";
 
 // react-pdf depends on browser-only APIs (Canvas, DOMMatrix, the PDF.js worker) and
@@ -88,6 +97,18 @@ interface ContractAnalysis {
   keyClauses?: KeyClauses;
   thingsToWatch?: ThingToWatch[];
 }
+
+// Either extraction mode's result — a Subcontract-mode analysis is told
+// apart by its documentType key (see lib/subcontract-analysis.ts).
+type AnyAnalysis = ContractAnalysis | SubcontractAnalysis;
+
+// Suggested questions for Ask Your Contract on a subcontract, in place of
+// the general-contract ones (its sections don't map onto ResultSectionId).
+const SUBCONTRACT_ASK_SUGGESTIONS = [
+  "When and how do I submit a progress claim?",
+  "How much retention is held, and when is it released?",
+  "What notice do I have to give for a variation?",
+];
 
 type AppState = "idle" | "fileSelected" | "analyzing" | "results";
 
@@ -190,9 +211,10 @@ const PARTIAL_ANALYSIS_KEYS: (keyof ContractAnalysis)[] = [
 // section whose value is a syntactically complete, balanced JSON value gets
 // parsed and returned — anything still mid-stream is left out entirely
 // rather than guessed at.
-function parsePartialAnalysis(text: string): Partial<ContractAnalysis> {
-  const partial: Partial<ContractAnalysis> = {};
-  for (const key of PARTIAL_ANALYSIS_KEYS) {
+// `keys` is SUBCONTRACT_PARTIAL_KEYS for a Subcontract-mode scan.
+function parsePartialAnalysis(text: string, keys: readonly string[] = PARTIAL_ANALYSIS_KEYS): Record<string, unknown> {
+  const partial: Record<string, unknown> = {};
+  for (const key of keys) {
     const markerIndex = text.indexOf(`"${key}"`);
     if (markerIndex === -1) continue;
     const colonIndex = text.indexOf(":", markerIndex);
@@ -223,7 +245,10 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState("");
 
-  const [analysis, setAnalysis] = useState<ContractAnalysis | null>(null);
+  const [analysis, setAnalysis] = useState<AnyAnalysis | null>(null);
+  // The upload screen's "General contract" / "Subcontract (construction)"
+  // choice — which extraction /api/analyze runs.
+  const [documentType, setDocumentType] = useState<DocumentType>("contract");
   const [contractText, setContractText] = useState("");
 
   // Drive the scan loading screen's file card and checklist. pageCount is
@@ -455,7 +480,12 @@ export default function Home() {
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contractText, question: q, history }),
+        body: JSON.stringify({
+          contractText,
+          question: q,
+          history,
+          documentType: analysis && isSubcontractAnalysis(analysis) ? "subcontract" : "contract",
+        }),
       });
       const data = await res.json();
 
@@ -596,11 +626,15 @@ export default function Home() {
     setScanStepsDone(0);
     setScanPhase("scanning");
 
-    const seenKeys = new Set<keyof ContractAnalysis>();
+    // Captured once so a toggle mid-scan can't mix the two modes.
+    const mode = documentType;
+    const partialKeys: readonly string[] = mode === "subcontract" ? SUBCONTRACT_PARTIAL_KEYS : PARTIAL_ANALYSIS_KEYS;
+    const seenKeys = new Set<string>();
 
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
+      formData.append("documentType", mode);
 
       const res = await fetch("/api/analyze", {
         method: "POST",
@@ -636,19 +670,21 @@ export default function Home() {
         const delimiterIndex = buffer.indexOf(STREAM_CONTRACT_TEXT_DELIMITER);
         const analysisTextSoFar = delimiterIndex === -1 ? buffer : buffer.slice(0, delimiterIndex);
 
-        const partial = parsePartialAnalysis(analysisTextSoFar);
-        const newKeys = (Object.keys(partial) as (keyof ContractAnalysis)[]).filter((k) => !seenKeys.has(k));
+        const partial = parsePartialAnalysis(analysisTextSoFar, partialKeys);
+        const newKeys = Object.keys(partial).filter((k) => !seenKeys.has(k));
         if (newKeys.length === 0) continue;
         newKeys.forEach((k) => seenKeys.add(k));
 
-        setAnalysis((prev) => ({ ...(prev ?? {}), ...partial }));
+        // Subcontract sections aren't shown until the contract-only
+        // enforcement below has run over the complete response.
+        if (mode === "contract") setAnalysis((prev) => ({ ...(prev ?? {}), ...(partial as Partial<ContractAnalysis>) }));
 
         // The scan loading screen's checklist mirrors PARTIAL_ANALYSIS_KEYS'
         // fixed order (which matches the key order Claude is asked to stream
         // the JSON in) — count how many keys from the front are in, so a
         // later section landing before an earlier one never shows a gap.
         let leadingDone = 0;
-        while (leadingDone < PARTIAL_ANALYSIS_KEYS.length && seenKeys.has(PARTIAL_ANALYSIS_KEYS[leadingDone])) {
+        while (leadingDone < partialKeys.length && seenKeys.has(partialKeys[leadingDone])) {
           leadingDone++;
         }
         setScanStepsDone(leadingDone);
@@ -659,13 +695,20 @@ export default function Home() {
       const analysisText = delimiterIndex === -1 ? buffer : buffer.slice(0, delimiterIndex);
       const finalContractText = delimiterIndex === -1 ? "" : buffer.slice(delimiterIndex + STREAM_CONTRACT_TEXT_DELIMITER.length);
 
-      const { data: parsed } = parseAnalysis(analysisText);
+      const { data: parsedResponse } = parseAnalysis(analysisText);
 
-      if (!parsed) {
+      if (!parsedResponse) {
         setError("The analysis didn't come back in a format we could read. Please try again.");
         setAppState("fileSelected");
         return;
       }
+
+      // Same deterministic enforcement the route applies before saving, so
+      // what's shown here is exactly what a reload from the dashboard shows.
+      const parsed: AnyAnalysis =
+        mode === "subcontract"
+          ? enforceContractOnly(parsedResponse as unknown as Record<string, unknown>, finalContractText)
+          : parsedResponse;
 
       setAnalysis(parsed);
       setContractText(finalContractText);
@@ -682,7 +725,7 @@ export default function Home() {
       }
 
       setAnalyzedAt(new Date());
-      setScanStepsDone(PARTIAL_ANALYSIS_KEYS.length);
+      setScanStepsDone(partialKeys.length);
       setScanPhase("complete");
     } catch {
       setError("Couldn't reach the analysis service. Is the dev server running?");
@@ -719,6 +762,8 @@ export default function Home() {
             onContinueClick={handleContinue}
             onScanCta={scrollToUpload}
             formatFileSize={formatFileSize}
+            documentType={documentType}
+            onDocumentTypeChange={setDocumentType}
             sampleSectionRef={sampleSectionRef}
             pickedSample={sampleStage === "confirm" ? sampleContract : null}
             onPickSample={pickSample}
@@ -744,6 +789,7 @@ export default function Home() {
           stepsDone={scanStepsDone}
           phase={scanPhase}
           onViewResults={viewResults}
+          steps={documentType === "subcontract" ? SUBCONTRACT_SCAN_STEPS : undefined}
         />
       )}
 
@@ -755,16 +801,27 @@ export default function Home() {
           is always safe to call from AskContractView's citations. */}
       {(appState === "results" || inSampleResults) && analysis && (
         <div style={{ display: viewingAsk ? "none" : "block" }}>
-          <ResultsView
-            ref={resultsViewRef}
-            analysis={analysis}
-            fileName={selectedFile ? selectedFile.name : (archivedFileName ?? "Contract")}
-            analyzedAt={analyzedAt}
-            onOpenCitation={openCitation}
-            onExportPdf={handleExportPdf}
-            onAskContract={() => setViewingAsk(true)}
-            onSectionChange={(section) => setAskSection(section)}
-          />
+          {isSubcontractAnalysis(analysis) ? (
+            <SubcontractResultsView
+              analysis={analysis}
+              fileName={selectedFile ? selectedFile.name : (archivedFileName ?? "Subcontract")}
+              analyzedAt={analyzedAt}
+              onOpenCitation={openCitation}
+              onExportPdf={handleExportPdf}
+              onAskContract={() => setViewingAsk(true)}
+            />
+          ) : (
+            <ResultsView
+              ref={resultsViewRef}
+              analysis={analysis}
+              fileName={selectedFile ? selectedFile.name : (archivedFileName ?? "Contract")}
+              analyzedAt={analyzedAt}
+              onOpenCitation={openCitation}
+              onExportPdf={handleExportPdf}
+              onAskContract={() => setViewingAsk(true)}
+              onSectionChange={(section) => setAskSection(section)}
+            />
+          )}
         </div>
       )}
 
@@ -820,13 +877,15 @@ export default function Home() {
         <AskContractView
           fileName={selectedFile ? selectedFile.name : (archivedFileName ?? "Contract")}
           section={askSection}
-          thingsToWatch={analysis.thingsToWatch ?? []}
+          thingsToWatch={isSubcontractAnalysis(analysis) ? [] : (analysis.thingsToWatch ?? [])}
           history={askHistory}
           pendingQuestion={askPendingQuestion}
           error={askError}
           onAsk={(question) => void askContract(question)}
           onBack={() => setViewingAsk(false)}
-          onJumpToSection={jumpFromAsk}
+          onJumpToSection={isSubcontractAnalysis(analysis) ? () => setViewingAsk(false) : jumpFromAsk}
+          contextLabel={isSubcontractAnalysis(analysis) ? "Subcontract" : undefined}
+          suggestions={isSubcontractAnalysis(analysis) ? SUBCONTRACT_ASK_SUGGESTIONS : undefined}
           onOpenCitation={openCitation}
         />
       )}
@@ -878,7 +937,14 @@ export default function Home() {
       {/* Off-screen on every viewport; @media print in globals.css hides
           everything else and pulls this into view when handleExportPdf's
           window.print() runs. */}
-      {analysis && (
+      {analysis && isSubcontractAnalysis(analysis) && (
+        <SubcontractSummaryPrint
+          analysis={analysis}
+          fileName={selectedFile ? selectedFile.name : archivedFileName ?? "Subcontract"}
+          analyzedAt={analyzedAt ?? new Date()}
+        />
+      )}
+      {analysis && !isSubcontractAnalysis(analysis) && (
         <ContractSummaryPrint
           analysis={analysis}
           fileName={selectedFile ? selectedFile.name : archivedFileName ?? "Contract"}

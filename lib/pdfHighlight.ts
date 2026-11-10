@@ -41,7 +41,14 @@ function collapseWithMapping(s: string): { collapsed: string; originalIndex: num
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
     if (/\s/.test(c)) {
-      if (!inWhitespace) {
+      // Whitespace right after a hyphen is dropped, not collapsed to a
+      // space: pdf.js splits a line that wraps at a hyphen ("portal.example-
+      // / domain") into two items, which would otherwise never match the
+      // quote's unbroken "example-domain". Applied to both sides of the
+      // comparison, so a genuine "- " still matches itself.
+      if (!inWhitespace && collapsed.endsWith("-")) {
+        inWhitespace = true;
+      } else if (!inWhitespace) {
         collapsed += " ";
         originalIndex.push(i);
         inWhitespace = true;

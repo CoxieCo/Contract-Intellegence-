@@ -220,6 +220,10 @@ interface AskContractViewProps {
   // app/page.tsx, so an Ask citation behaves identically to every other
   // citation in the app.
   onOpenCitation: (page: number, section: string | null, quote: string | null) => void;
+  // Overrides for a non-general-contract analysis (Subcontract mode), whose
+  // results sections don't map onto ResultSectionId.
+  contextLabel?: string;
+  suggestions?: string[];
 }
 
 export default function AskContractView({
@@ -233,6 +237,8 @@ export default function AskContractView({
   onBack,
   onJumpToSection,
   onOpenCitation,
+  contextLabel,
+  suggestions: suggestionsOverride,
 }: AskContractViewProps) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -265,7 +271,7 @@ export default function AskContractView({
     .map((w, i) => ({ item: w, watchIndex: thingsToWatch.indexOf(w), key: `${w.title}-${i}` }))
     .slice(0, RECOMMENDATION_CAP);
 
-  const suggestions = SUGGESTIONS_BY_SECTION[section] ?? SUGGESTIONS_BY_SECTION.overview;
+  const suggestions = suggestionsOverride ?? SUGGESTIONS_BY_SECTION[section] ?? SUGGESTIONS_BY_SECTION.overview;
 
   return (
     <div className="ci-ask" style={{ minHeight: "100vh", background: "var(--color-bg)", color: "var(--color-text)", display: "flex", flexDirection: "column" }}>
@@ -291,7 +297,7 @@ export default function AskContractView({
           <div>
             <h1 style={{ fontSize: 28, margin: 0 }}>Ask Your Contract</h1>
             <span className="tag tag-accent" style={{ marginTop: 10, display: "inline-flex" }}>
-              Viewing: {fileName} — {SECTION_LABELS[section]}
+              Viewing: {fileName} — {contextLabel ?? SECTION_LABELS[section]}
             </span>
           </div>
 

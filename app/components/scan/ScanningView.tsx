@@ -12,7 +12,7 @@
 // streamed in, counting from the front) drives which row is done/active/
 // pending here.
 
-import { CSSProperties } from "react";
+import { CSSProperties, ReactNode } from "react";
 import { IconCalendar, IconCheck, IconList } from "../landing/icons";
 import { IconAlertTriangle, IconFile, IconFileCheck } from "../results/icons";
 import "./scanning.css";
@@ -28,6 +28,26 @@ const SCAN_STEPS = [
   { label: "Things to watch", activeLabel: "Flagging things to watch", Icon: IconAlertTriangle },
 ] as const;
 
+// Subcontract mode streams nine sections (SUBCONTRACT_PARTIAL_KEYS in
+// lib/subcontract-analysis.ts, same order) — same checklist, its own rows.
+export const SUBCONTRACT_SCAN_STEPS: readonly ScanStep[] = [
+  { label: "Parties & contract sum", activeLabel: "Reading the parties", Icon: IconFile },
+  { label: "Progress claims", activeLabel: "Finding progress claim terms", Icon: IconList },
+  { label: "Payment terms", activeLabel: "Reading payment terms", Icon: IconList },
+  { label: "Retention", activeLabel: "Finding retention terms", Icon: IconList },
+  { label: "Defects liability", activeLabel: "Finding the defects period", Icon: IconCalendar },
+  { label: "Time bars & notices", activeLabel: "Finding notice deadlines", Icon: IconAlertTriangle },
+  { label: "Insurance & licences", activeLabel: "Reading insurance requirements", Icon: IconFileCheck },
+  { label: "Termination & suspension", activeLabel: "Reading termination rights", Icon: IconFileCheck },
+  { label: "Disputes", activeLabel: "Reading the disputes clause", Icon: IconFileCheck },
+];
+
+interface ScanStep {
+  label: string;
+  activeLabel: string;
+  Icon: (props: { size?: number }) => ReactNode;
+}
+
 interface ScanningViewProps {
   fileName: string;
   pageCount: number | null;
@@ -35,6 +55,8 @@ interface ScanningViewProps {
   stepsDone: number;
   phase: ScanPhase;
   onViewResults: () => void;
+  /** Checklist rows; the general-contract rows when omitted. */
+  steps?: readonly ScanStep[];
 }
 
 function stepBadgeStyle(status: StepStatus): CSSProperties {
@@ -63,20 +85,20 @@ function stepLabelStyle(status: StepStatus): CSSProperties {
   };
 }
 
-export default function ScanningView({ fileName, pageCount, stepsDone, phase, onViewResults }: ScanningViewProps) {
+export default function ScanningView({ fileName, pageCount, stepsDone, phase, onViewResults, steps = SCAN_STEPS }: ScanningViewProps) {
   const phaseComplete = phase === "complete";
-  const statuses: StepStatus[] = SCAN_STEPS.map((_, i) =>
+  const statuses: StepStatus[] = steps.map((_, i) =>
     i < stepsDone ? "done" : i === stepsDone && !phaseComplete ? "active" : "pending"
   );
 
-  const progressPercent = phaseComplete ? 100 : Math.round((stepsDone / SCAN_STEPS.length) * 100);
+  const progressPercent = phaseComplete ? 100 : Math.round((stepsDone / steps.length) * 100);
   const statusHeading = phaseComplete
     ? "Analysis complete"
-    : stepsDone < SCAN_STEPS.length
+    : stepsDone < steps.length
       ? `${SCAN_STEPS[stepsDone].activeLabel}…`
       : "Finishing up…";
   const statusSubtext = phaseComplete ? "Your results are ready to view." : `Reading through ${fileName}.`;
-  const progressLabel = phaseComplete ? "Complete" : `${stepsDone} of ${SCAN_STEPS.length} sections`;
+  const progressLabel = phaseComplete ? "Complete" : `${stepsDone} of ${steps.length} sections`;
 
   return (
     <div className="ci-scan" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--color-bg)", color: "var(--color-text)" }}>
@@ -148,7 +170,7 @@ export default function ScanningView({ fileName, pageCount, stepsDone, phase, on
             </div>
 
             <div style={{ width: "100%", maxWidth: 420, marginTop: 32, display: "flex", flexDirection: "column", textAlign: "left" }}>
-              {SCAN_STEPS.map((step, i) => {
+              {steps.map((step, i) => {
                 const status = statuses[i];
                 const StepIcon = step.Icon;
                 return (

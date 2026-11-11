@@ -74,21 +74,42 @@ interface CardEntry {
   quoteVerified?: boolean;
 }
 
+// An analysis restored from the dashboard isn't re-run through
+// enforceContractOnly(), so coerce the props FieldCard/GlanceCard call
+// string methods on — a malformed field then renders as text or Not found
+// instead of crashing the page.
+function normalizeField<T extends SubcontractField>(f: T): T {
+  return {
+    ...f,
+    value: typeof f.value === "string" ? f.value : "",
+    summary: typeof f.summary === "string" ? f.summary : undefined,
+    quote: typeof f.quote === "string" ? f.quote : "",
+    page: typeof f.page === "number" ? f.page : null,
+    section: typeof f.section === "string" ? f.section : null,
+  };
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
 function fieldOf(analysis: SubcontractAnalysis, section: SubcontractSectionId, key: string): SubcontractField | undefined {
-  const sec = analysis[section] as unknown as Record<string, unknown> | undefined;
-  const f = sec?.[key];
-  return f && typeof f === "object" && !Array.isArray(f) ? (f as SubcontractField) : undefined;
+  const sec = (analysis as unknown as Record<string, unknown>)[section];
+  const f = isObject(sec) ? sec[key] : undefined;
+  return isObject(f) ? normalizeField(f as unknown as SubcontractField) : undefined;
 }
 
 function listOf(analysis: SubcontractAnalysis, section: SubcontractSectionId, key: string): (InsuranceRequirement | NoticeDeadline)[] {
-  const sec = analysis[section] as unknown as Record<string, unknown> | undefined;
-  const items = sec?.[key];
-  return Array.isArray(items) ? items : [];
+  const sec = (analysis as unknown as Record<string, unknown>)[section];
+  const items = isObject(sec) ? sec[key] : undefined;
+  return Array.isArray(items)
+    ? items.filter(isObject).map((item) => normalizeField(item as unknown as InsuranceRequirement | NoticeDeadline))
+    : [];
 }
 
 function listItemLabel(item: InsuranceRequirement | NoticeDeadline): string {
-  if ("type" in item && item.type) return item.type;
-  if ("label" in item && item.label) return item.label;
+  if ("type" in item && typeof item.type === "string" && item.type) return item.type;
+  if ("label" in item && typeof item.label === "string" && item.label) return item.label;
   return "Item";
 }
 
@@ -159,7 +180,7 @@ const SubcontractResultsView = forwardRef<SubcontractResultsViewHandle, Subcontr
       if (items.length === 0) allMissing.push({ key: `${meta.id}.${meta.list.key}`, label: meta.list.label, category: meta.title });
       items.forEach((item, i) => {
         const field: SourcedValue =
-          "amount" in item
+          "amount" in item && typeof item.amount === "string" && item.amount
             ? { ...item, value: item.amount, summary: item.amount === "Not stated" ? "Amount not stated" : item.amount }
             : item;
         found.push({ key: `${meta.list!.key}.${i}`, label: listItemLabel(item), field, quoteVerified: item.quoteVerified });

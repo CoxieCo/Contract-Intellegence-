@@ -13,6 +13,7 @@
 // pending here.
 
 import { CSSProperties, ReactNode } from "react";
+import { SUBCONTRACT_SECTIONS, type SubcontractSectionId } from "@/lib/subcontract-analysis";
 import { IconCalendar, IconCheck, IconList } from "../landing/icons";
 import { IconAlertTriangle, IconFile, IconFileCheck } from "../results/icons";
 import "./scanning.css";
@@ -20,38 +21,46 @@ import "./scanning.css";
 type StepStatus = "done" | "active" | "pending";
 export type ScanPhase = "scanning" | "complete";
 
-const SCAN_STEPS = [
-  { label: "Contract identity", activeLabel: "Reading contract identity", Icon: IconFile },
-  { label: "Important dates", activeLabel: "Extracting important dates", Icon: IconCalendar },
-  { label: "Commercial terms", activeLabel: "Checking payment details", Icon: IconList },
-  { label: "Key clauses", activeLabel: "Reviewing key clauses", Icon: IconFileCheck },
-  { label: "Things to watch", activeLabel: "Flagging things to watch", Icon: IconAlertTriangle },
-] as const;
-
-// Subcontract mode streams nine sections (SUBCONTRACT_PARTIAL_KEYS in
-// lib/subcontract-analysis.ts, same order) — same checklist, its own rows.
-export const SUBCONTRACT_SCAN_STEPS: readonly ScanStep[] = [
-  { label: "Parties & contract sum", activeLabel: "Reading the parties", Icon: IconFile },
-  { label: "Progress claims", activeLabel: "Finding progress claim terms", Icon: IconList },
-  { label: "Payment terms", activeLabel: "Reading payment terms", Icon: IconList },
-  { label: "Retention", activeLabel: "Finding retention terms", Icon: IconList },
-  { label: "Defects liability", activeLabel: "Finding the defects period", Icon: IconCalendar },
-  { label: "Time bars & notices", activeLabel: "Finding notice deadlines", Icon: IconAlertTriangle },
-  { label: "Insurance & licences", activeLabel: "Reading insurance requirements", Icon: IconFileCheck },
-  { label: "Termination & suspension", activeLabel: "Reading termination rights", Icon: IconFileCheck },
-  { label: "Disputes", activeLabel: "Reading the disputes clause", Icon: IconFileCheck },
-];
-
 interface ScanStep {
   label: string;
   activeLabel: string;
   Icon: (props: { size?: number }) => ReactNode;
 }
 
+const SCAN_STEPS: readonly ScanStep[] = [
+  { label: "Contract identity", activeLabel: "Reading contract identity", Icon: IconFile },
+  { label: "Important dates", activeLabel: "Extracting important dates", Icon: IconCalendar },
+  { label: "Commercial terms", activeLabel: "Checking payment details", Icon: IconList },
+  { label: "Key clauses", activeLabel: "Reviewing key clauses", Icon: IconFileCheck },
+  { label: "Things to watch", activeLabel: "Flagging things to watch", Icon: IconAlertTriangle },
+];
+
+// Subcontract mode streams one key per SUBCONTRACT_SECTIONS entry
+// (SUBCONTRACT_PARTIAL_KEYS in lib/subcontract-analysis.ts is derived from
+// it), so the rows are derived from it too — one row per streamed section,
+// in the same order, so the two counts can never drift apart. The Record
+// type makes a new section without a row here a compile error.
+const SUBCONTRACT_STEP_DETAILS: Record<SubcontractSectionId, Omit<ScanStep, "label">> = {
+  parties: { activeLabel: "Reading the parties", Icon: IconFile },
+  progressClaims: { activeLabel: "Finding progress claim terms", Icon: IconList },
+  paymentTerms: { activeLabel: "Reading payment terms", Icon: IconList },
+  retention: { activeLabel: "Finding retention terms", Icon: IconList },
+  defectsLiability: { activeLabel: "Finding the defects period", Icon: IconCalendar },
+  timeBars: { activeLabel: "Finding notice deadlines", Icon: IconAlertTriangle },
+  insuranceAndLicences: { activeLabel: "Reading insurance requirements", Icon: IconFileCheck },
+  termination: { activeLabel: "Reading termination rights", Icon: IconFileCheck },
+  disputes: { activeLabel: "Reading the disputes clause", Icon: IconFileCheck },
+};
+
+export const SUBCONTRACT_SCAN_STEPS: readonly ScanStep[] = SUBCONTRACT_SECTIONS.map((s) => ({
+  label: s.title,
+  ...SUBCONTRACT_STEP_DETAILS[s.id],
+}));
+
 interface ScanningViewProps {
   fileName: string;
   pageCount: number | null;
-  /** How many leading checklist rows (in SCAN_STEPS order) have completed. */
+  /** How many leading checklist rows (in `steps` order) have completed; clamped to steps.length. */
   stepsDone: number;
   phase: ScanPhase;
   onViewResults: () => void;
@@ -87,18 +96,20 @@ function stepLabelStyle(status: StepStatus): CSSProperties {
 
 export default function ScanningView({ fileName, pageCount, stepsDone, phase, onViewResults, steps = SCAN_STEPS }: ScanningViewProps) {
   const phaseComplete = phase === "complete";
+  // Clamped so a count past the end (or a bad value) can never index off
+  // `steps`. Every row done but the phase not yet "complete" (the final
+  // parse/verification still running) is its own state: no active row.
+  const done = Math.min(Math.max(Math.floor(stepsDone) || 0, 0), steps.length);
+  const allStepsDone = done === steps.length;
+  const activeStep = phaseComplete || allStepsDone ? null : steps[done];
   const statuses: StepStatus[] = steps.map((_, i) =>
-    i < stepsDone ? "done" : i === stepsDone && !phaseComplete ? "active" : "pending"
+    phaseComplete || i < done ? "done" : i === done ? "active" : "pending"
   );
 
-  const progressPercent = phaseComplete ? 100 : Math.round((stepsDone / steps.length) * 100);
-  const statusHeading = phaseComplete
-    ? "Analysis complete"
-    : stepsDone < steps.length
-      ? `${SCAN_STEPS[stepsDone].activeLabel}…`
-      : "Finishing up…";
+  const progressPercent = phaseComplete ? 100 : steps.length === 0 ? 0 : Math.round((done / steps.length) * 100);
+  const statusHeading = phaseComplete ? "Analysis complete" : activeStep ? `${activeStep.activeLabel}…` : "Finishing up…";
   const statusSubtext = phaseComplete ? "Your results are ready to view." : `Reading through ${fileName}.`;
-  const progressLabel = phaseComplete ? "Complete" : `${stepsDone} of ${steps.length} sections`;
+  const progressLabel = phaseComplete ? "Complete" : `${done} of ${steps.length} sections`;
 
   return (
     <div className="ci-scan" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--color-bg)", color: "var(--color-text)" }}>

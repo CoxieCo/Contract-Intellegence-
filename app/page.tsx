@@ -258,6 +258,9 @@ export default function Home() {
   const [pageCount, setPageCount] = useState<number | null>(null);
   const [scanStepsDone, setScanStepsDone] = useState(0);
   const [scanPhase, setScanPhase] = useState<"scanning" | "complete">("scanning");
+  // The mode the running scan was started in — picks the checklist rows, so
+  // they always match the keys that scan is counting (see handleContinue).
+  const [scanMode, setScanMode] = useState<DocumentType>("contract");
 
   // The Sample Scan section's flow (see app/components/landing/
   // SampleScanSection). "confirm" keeps Landing on screen with a confirm
@@ -628,6 +631,7 @@ export default function Home() {
 
     // Captured once so a toggle mid-scan can't mix the two modes.
     const mode = documentType;
+    setScanMode(mode);
     const partialKeys: readonly string[] = mode === "subcontract" ? SUBCONTRACT_PARTIAL_KEYS : PARTIAL_ANALYSIS_KEYS;
     const seenKeys = new Set<string>();
 
@@ -789,7 +793,7 @@ export default function Home() {
           stepsDone={scanStepsDone}
           phase={scanPhase}
           onViewResults={viewResults}
-          steps={documentType === "subcontract" ? SUBCONTRACT_SCAN_STEPS : undefined}
+          steps={scanMode === "subcontract" ? SUBCONTRACT_SCAN_STEPS : undefined}
         />
       )}
 

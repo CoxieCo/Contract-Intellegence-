@@ -113,14 +113,87 @@ function fieldsFor<K extends string>(
   return (Object.keys(labels) as K[]).map((key) => ({ key, label: labels[key], field: obj[key] ?? MISSING_FIELD }));
 }
 
-function formatAnalyzedAt(d: Date): string {
+export function formatAnalyzedAt(d: Date): string {
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
   const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   return sameDay ? `Analyzed today at ${time}` : `Analyzed ${d.toLocaleDateString([], { month: "short", day: "numeric" })} at ${time}`;
 }
 
-function SectionHeader({
+// The results page nav — shared with SubcontractResultsView.
+export function ResultsNav() {
+  return (
+    <nav className="nav" style={{ borderBottom: "1px solid var(--color-divider)", flex: "none", position: "sticky", top: 0, zIndex: 50, background: "var(--color-bg)" }}>
+      {/* A plain <a>, not next/link: this view is rendered inside the "/"
+          route by app/page.tsx (results state lives in that client
+          component), so a soft navigation to "/" would leave that state
+          untouched and do nothing visible — a full load is what actually
+          returns to the homepage, the way a site logo is expected to. */}
+      {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- a full load is the point (see comment above); next/link would soft-navigate and leave the results state up */}
+      <a href="/" className="nav-brand" style={{ color: "var(--color-text)", textDecoration: "none" }}>
+        Contract Intelligence
+      </a>
+      <AuthStatus />
+      <Link href="/dashboard" className="btn btn-primary blueprint">
+        <i className="corner tl" />
+        <i className="corner tr" />
+        <i className="corner bl" />
+        <i className="corner br" />
+        Dashboard
+      </Link>
+    </nav>
+  );
+}
+
+// File info + actions — shared with SubcontractResultsView.
+export function FileInfoCard({
+  fileName,
+  analyzedAt,
+  onExportPdf,
+  onAskContract,
+}: {
+  fileName: string;
+  analyzedAt: Date | null;
+  onExportPdf: () => void;
+  onAskContract: () => void;
+}) {
+  return (
+    <div className="card blueprint" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", gap: "12px 16px" }}>
+      <i className="corner tl" />
+      <i className="corner tr" />
+      <i className="corner bl" />
+      <i className="corner br" />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 300, flex: "1 1 300px" }}>
+        <IconFile size={20} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fileName}</div>
+          {analyzedAt && (
+            <div className="text-muted" style={{ fontSize: 12, marginTop: 2 }}>
+              {formatAnalyzedAt(analyzedAt)}
+            </div>
+          )}
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "0 1 auto", flexWrap: "wrap" }}>
+        <Link href="/dashboard" className="btn btn-primary blueprint">
+          <i className="corner tl" />
+          <i className="corner tr" />
+          <i className="corner bl" />
+          <i className="corner br" />
+          Dashboard
+        </Link>
+        <button type="button" className="btn btn-secondary" onClick={onExportPdf}>
+          Export Analysis
+        </button>
+        <button type="button" className="btn btn-secondary" onClick={onAskContract}>
+          Ask your contract
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function SectionHeader({
   icon,
   title,
   count,
@@ -153,7 +226,7 @@ function SectionHeader({
   );
 }
 
-function SectionPanel({ open, children }: { open: boolean; children: ReactNode }) {
+export function SectionPanel({ open, children }: { open: boolean; children: ReactNode }) {
   return (
     <div className={`ci-accordion-panel ${open ? "is-open" : ""}`}>
       <div>
@@ -170,7 +243,7 @@ function SectionPanel({ open, children }: { open: boolean; children: ReactNode }
 // still labeled with its category so context isn't lost. Keeps the "not
 // found, not guessed" principle fully intact (nothing is hidden, just kept
 // out of the way of the fields the contract actually answers).
-function MissingFieldCard({ label, category }: { label: string; category: string }) {
+export function MissingFieldCard({ label, category }: { label: string; category: string }) {
   return (
     <div className="card blueprint" style={{ padding: "12px 14px" }}>
       <i className="corner tl" />
@@ -294,25 +367,7 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
 
   return (
     <div className="ci-results" style={{ minHeight: "100vh", background: "var(--color-bg)", color: "var(--color-text)", display: "flex", flexDirection: "column" }}>
-      <nav className="nav" style={{ borderBottom: "1px solid var(--color-divider)", flex: "none", position: "sticky", top: 0, zIndex: 50, background: "var(--color-bg)" }}>
-        {/* A plain <a>, not next/link: this view is rendered inside the "/"
-            route by app/page.tsx (results state lives in that client
-            component), so a soft navigation to "/" would leave that state
-            untouched and do nothing visible — a full load is what actually
-            returns to the homepage, the way a site logo is expected to. */}
-        {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- a full load is the point (see comment above); next/link would soft-navigate and leave the results state up */}
-        <a href="/" className="nav-brand" style={{ color: "var(--color-text)", textDecoration: "none" }}>
-          Contract Intelligence
-        </a>
-        <AuthStatus />
-        <Link href="/dashboard" className="btn btn-primary blueprint">
-          <i className="corner tl" />
-          <i className="corner tr" />
-          <i className="corner bl" />
-          <i className="corner br" />
-          Dashboard
-        </Link>
-      </nav>
+      <ResultsNav />
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
         <Sidebar
@@ -324,38 +379,7 @@ const ResultsView = forwardRef<ResultsViewHandle, ResultsViewProps>(function Res
         <main style={{ flex: 1, minWidth: 0, padding: "32px 40px 90px", display: "flex", justifyContent: "center" }}>
           <div style={{ width: "100%", maxWidth: 900, display: "flex", flexDirection: "column", gap: 22 }}>
             {/* File info + actions */}
-            <div className="card blueprint" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", gap: "12px 16px" }}>
-              <i className="corner tl" />
-              <i className="corner tr" />
-              <i className="corner bl" />
-              <i className="corner br" />
-              <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 300, flex: "1 1 300px" }}>
-                <IconFile size={20} />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fileName}</div>
-                  {analyzedAt && (
-                    <div className="text-muted" style={{ fontSize: 12, marginTop: 2 }}>
-                      {formatAnalyzedAt(analyzedAt)}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "0 1 auto", flexWrap: "wrap" }}>
-                <Link href="/dashboard" className="btn btn-primary blueprint">
-                  <i className="corner tl" />
-                  <i className="corner tr" />
-                  <i className="corner bl" />
-                  <i className="corner br" />
-                  Dashboard
-                </Link>
-                <button type="button" className="btn btn-secondary" onClick={onExportPdf}>
-                  Export Analysis
-                </button>
-                <button type="button" className="btn btn-secondary" onClick={onAskContract}>
-                  Ask your contract
-                </button>
-              </div>
-            </div>
+            <FileInfoCard fileName={fileName} analyzedAt={analyzedAt} onExportPdf={onExportPdf} onAskContract={onAskContract} />
 
             {/* At a glance — only fields actually found in the document */}
             {glanceCandidates.length > 0 && (
@@ -560,7 +584,7 @@ export default ResultsView;
 
 // Only ever called with a field that was actually found (see glanceCandidates
 // above) — a "Not found" glance card would just duplicate Unknown Fields.
-function GlanceCard({
+export function GlanceCard({
   label,
   field,
   onOpenCitation,
@@ -574,6 +598,8 @@ function GlanceCard({
   // full exact text is always one click away in the dedicated section below.
   const summary = field.summary?.trim();
   const display = summary || field.value;
+  // Subcontract-mode fields carry their verbatim clause in "quote".
+  const exactText = field.quote?.trim() || field.value;
   return (
     <div className="card blueprint" style={{ padding: "16px 18px" }}>
       <i className="corner tl" />
@@ -584,7 +610,7 @@ function GlanceCard({
         {label}
       </p>
       <p style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.3, margin: "0 0 8px" }}>{display}</p>
-      {hasCitation && <CiteTag page={field.page} section={field.section} quote={field.value} onOpen={onOpenCitation} />}
+      {hasCitation && <CiteTag page={field.page} section={field.section} quote={exactText} onOpen={onOpenCitation} />}
     </div>
   );
 }

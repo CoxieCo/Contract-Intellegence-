@@ -22,17 +22,20 @@ export default function FieldCard({
   const [expanded, setExpanded] = useState(false);
   const notFound = field.value === "Not found";
   const hasCitation = field.page != null || field.section != null;
+  // The verbatim clause — "value" itself for a general-contract field, or
+  // the separate "quote" a Subcontract-mode field carries (see SourcedValue).
+  const exactText = field.quote?.trim() || field.value;
 
   // Prefer the model's generated summary as the collapsed view (exact clause
   // text stays available via expand, for verification/citation). Older
   // stored analyses predate the "summary" field, so they fall back to the
   // previous truncate-the-exact-text behavior instead.
   const summary = field.summary?.trim();
-  const hasSummary = !notFound && !!summary && summary !== field.value;
-  const isLongLegacy = !notFound && !hasSummary && field.value.length > FIELD_PREVIEW_LEN;
+  const hasSummary = !notFound && !!summary && summary !== exactText;
+  const isLongLegacy = !notFound && !hasSummary && exactText.length > FIELD_PREVIEW_LEN;
   const showToggle = hasSummary || isLongLegacy;
-  const collapsedText = hasSummary ? summary : isLongLegacy ? `${truncateAtWord(field.value, FIELD_PREVIEW_LEN)}…` : field.value;
-  const display = showToggle && !expanded ? collapsedText : field.value;
+  const collapsedText = hasSummary ? summary : isLongLegacy ? `${truncateAtWord(exactText, FIELD_PREVIEW_LEN)}…` : exactText;
+  const display = showToggle && !expanded ? collapsedText : exactText;
 
   return (
     <div
@@ -53,7 +56,7 @@ export default function FieldCard({
         {(extraTag || hasCitation) && (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {extraTag}
-            {hasCitation && <CiteTag page={field.page} section={field.section} quote={field.value} onOpen={onOpenCitation} />}
+            {hasCitation && <CiteTag page={field.page} section={field.section} quote={exactText} onOpen={onOpenCitation} />}
           </div>
         )}
       </div>

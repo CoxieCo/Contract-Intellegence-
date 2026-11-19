@@ -10,6 +10,12 @@
 
 import { ChangeEvent, DragEvent, RefObject } from "react";
 import { IconFile, IconUpload } from "./icons";
+import type { DocumentType } from "@/lib/subcontract-analysis";
+
+const DOCUMENT_TYPE_OPTIONS: { value: DocumentType; label: string }[] = [
+  { value: "contract", label: "General contract" },
+  { value: "subcontract", label: "Subcontract (construction)" },
+];
 
 export type UploadAppState = "idle" | "fileSelected";
 
@@ -27,6 +33,9 @@ interface UploadPanelProps {
   onRemoveClick: () => void;
   onContinueClick: () => void;
   formatFileSize: (bytes: number) => string;
+  // Which extraction /api/analyze runs — see lib/subcontract-analysis.ts.
+  documentType: DocumentType;
+  onDocumentTypeChange: (type: DocumentType) => void;
 }
 
 export default function UploadPanel({
@@ -43,6 +52,8 @@ export default function UploadPanel({
   onRemoveClick,
   onContinueClick,
   formatFileSize,
+  documentType,
+  onDocumentTypeChange,
 }: UploadPanelProps) {
   const dim = "color-mix(in srgb, var(--color-text) 55%, transparent)";
 
@@ -67,6 +78,29 @@ export default function UploadPanel({
             Scan a contract
           </h2>
         </div>
+
+        <div role="radiogroup" aria-label="Document type" style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8, marginBottom: 14 }}>
+          {DOCUMENT_TYPE_OPTIONS.map((opt) => {
+            const selected = documentType === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                className={`btn ${selected ? "btn-primary" : "btn-secondary"}`}
+                onClick={() => onDocumentTypeChange(opt.value)}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        {documentType === "subcontract" && (
+          <p style={{ margin: "0 auto 14px", maxWidth: 440, textAlign: "center", fontSize: 13, lineHeight: "19px", color: dim }}>
+            For Queensland construction subcontracts. Pulls out claims, payment, retention, time bars and insurance — taken from your contract only.
+          </p>
+        )}
 
         <div className="blueprint" style={{ background: "var(--color-bg)" }}>
           <i className="corner tl" />

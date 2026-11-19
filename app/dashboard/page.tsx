@@ -14,6 +14,7 @@ import {
   severityRank,
   truncateAtWord,
 } from "@/lib/contract-analysis";
+import { isFieldFound, isSubcontractAnalysis } from "@/lib/subcontract-analysis";
 import "../components/results/results.css";
 import CiteTag from "../components/results/CiteTag";
 import AuthStatus from "../components/auth/AuthStatus";
@@ -97,6 +98,8 @@ function shortFieldText(field: SourcedValue, max = FIELD_PREVIEW_LEN): string {
 // then goes through shortFieldText so a verbose parties clause never shows
 // up whole in a tile or rollup row.
 function contractLabel(analysis: ContractAnalysis, fallback: string): string {
+  const headline = pickHeadlineField(analysis);
+  if (headline && isSubcontractAnalysis(analysis)) return shortFieldText(headline.field);
   const name = analysis.contractOverview?.contractName;
   if (name && name.value !== "Not found") return shortFieldText(name);
   const parties = analysis.contractOverview?.parties;
@@ -112,6 +115,12 @@ function contractLabel(analysis: ContractAnalysis, fallback: string): string {
 // tells the caller whether the supporting parties line below the headline
 // would just be repeating it.
 function pickHeadlineField(analysis: ContractAnalysis): { field: SourcedValue; isParties: boolean } | null {
+  // A Subcontract-mode row (see lib/subcontract-analysis.ts) has no
+  // contractOverview — it's named by its head contractor instead.
+  if (isSubcontractAnalysis(analysis)) {
+    const head = analysis.parties?.headContractorName;
+    return head && isFieldFound(head) ? { field: head, isParties: true } : null;
+  }
   const name = analysis.contractOverview?.contractName;
   if (name && name.value !== "Not found") return { field: name, isParties: false };
   const parties = analysis.contractOverview?.parties;
@@ -616,6 +625,9 @@ export default function DashboardPage() {
                           <p style={{ fontWeight: 600, fontSize: 14.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             {contractLabel(row.analysis, row.file_name)}
                           </p>
+                          {isSubcontractAnalysis(row.analysis) && (
+                            <p className="text-muted" style={{ marginTop: 2, fontSize: 12 }}>Subcontract (construction)</p>
+                          )}
                           {row.analysis.contractOverview?.contractType?.value &&
                             row.analysis.contractOverview.contractType.value !== "Not found" && (
                               <p className="text-muted" style={{ marginTop: 2, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>

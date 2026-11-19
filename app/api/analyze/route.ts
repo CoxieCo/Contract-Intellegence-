@@ -8,6 +8,13 @@ import { getSessionId } from "@/lib/session";
 import { createUserClient, getAuthenticatedUserId } from "@/lib/supabase-server";
 import { STREAM_CONTRACT_TEXT_DELIMITER } from "@/lib/contract-analysis";
 import { SIGNUP_REQUIRED_CODE } from "@/lib/freeTier";
+import {
+  SUBCONTRACT_PREFILL,
+  SUBCONTRACT_SYSTEM_PROMPT,
+  buildSubcontractUserPrompt,
+  enforceContractOnly,
+  parseDocumentType,
+} from "@/lib/subcontract-analysis";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -35,6 +42,23 @@ function parseAnalysisJson(text: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+// Subcontract mode's extraction call — same model and params as the general
+// contract call in POST below, plus a system prompt carrying the
+// contract-only HARD RULE (re-enforced in code by enforceContractOnly(),
+// applied before the save below and again on the client before display).
+function streamSubcontractAnalysis(pageMarkedText: string) {
+  return anthropic.messages.stream({
+    model: "claude-sonnet-4-5",
+    max_tokens: 8192,
+    temperature: 0,
+    system: SUBCONTRACT_SYSTEM_PROMPT,
+    messages: [
+      { role: "user", content: buildSubcontractUserPrompt(pageMarkedText) },
+      { role: "assistant", content: SUBCONTRACT_PREFILL },
+    ],
+  });
 }
 
 // How many scans an anonymous visitor gets before they have to sign up. The
@@ -120,6 +144,10 @@ export async function POST(req: NextRequest) {
       );
     }
     const file = formData.get("file") as File | null;
+    // "General contract" (the default, and the only mode before this field
+    // existed) or "Subcontract (construction)" — anything else is treated as
+    // the default rather than rejected.
+    const documentType = parseDocumentType(formData.get("documentType"));
 
     if (!file) {
       return NextResponse.json(
@@ -169,7 +197,10 @@ export async function POST(req: NextRequest) {
       .join("\n\n");
 
     const claudeStart = Date.now();
-    const anthropicStream = anthropic.messages.stream({
+    // The prefill is echoed into the response stream below (the API doesn't
+    // return it), so it has to be known up front for both modes.
+    const prefill = documentType === "subcontract" ? SUBCONTRACT_PREFILL : "{";
+    const anthropicStream = documentType === "subcontract" ? streamSubcontractAnalysis(pageMarkedText) : anthropic.messages.stream({
       model: "claude-sonnet-4-5",
       max_tokens: 8192,
       temperature: 0,
@@ -270,10 +301,22 @@ ${pageMarkedText}`,
       resolveParsedAnalysis = resolve;
     });
     after(async () => {
-      const parsedAnalysis = await parsedAnalysisPromise;
-      if (!parsedAnalysis) {
+      const parsedResponse = await parsedAnalysisPromise;
+      if (!parsedResponse) {
         console.error("Skipped saving analysis: response was not valid JSON");
         return;
+      }
+      // Subcontract analyses are saved exactly as the client displays them:
+      // through the same contract-only enforcement (see
+      // lib/subcontract-analysis.ts). Their "documentType" key is what tells
+      // a reload which results view to show.
+      let parsedAnalysis: Record<string, unknown> = parsedResponse;
+      if (documentType === "subcontract") {
+        const enforcementLog: string[] = [];
+        parsedAnalysis = { ...enforceContractOnly(parsedResponse, pageMarkedText, enforcementLog) };
+        if (enforcementLog.length > 0) {
+          console.log(`[subcontract] contract-only enforcement for "${file.name}":`, enforcementLog);
+        }
       }
       const saveStart = Date.now();
       // Upsert on (session_id, file_hash) rather than always inserting —
@@ -330,7 +373,7 @@ ${pageMarkedText}`,
     const encoder = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
-        let fullText = "{";
+        let fullText = prefill;
         controller.enqueue(encoder.encode(fullText));
         try {
           anthropicStream.on("text", (delta) => {

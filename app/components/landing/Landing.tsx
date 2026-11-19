@@ -13,6 +13,7 @@ import HeroDemo from "./HeroDemo";
 import SampleScanSection from "./SampleScanSection";
 import type { SampleContract } from "./sampleContracts";
 import UploadPanel, { UploadAppState } from "./UploadPanel";
+import type { DocumentType } from "@/lib/subcontract-analysis";
 import CoverageAccordion from "./CoverageAccordion";
 import FaqAccordion from "./FaqAccordion";
 import AuthStatus from "../auth/AuthStatus";
@@ -33,6 +34,8 @@ interface LandingProps {
   onContinueClick: () => void;
   onScanCta: () => void;
   formatFileSize: (bytes: number) => string;
+  documentType: DocumentType;
+  onDocumentTypeChange: (type: DocumentType) => void;
   // Sample Scan section — a separate, no-upload entry point (see
   // SampleScanSection). All of its run state lives in app/page.tsx alongside
   // the real scan flow, so picking a sample can take over the whole page
@@ -677,6 +680,8 @@ export default function Landing(props: LandingProps) {
         onRemoveClick={props.onRemoveClick}
         onContinueClick={props.onContinueClick}
         formatFileSize={props.formatFileSize}
+        documentType={props.documentType}
+        onDocumentTypeChange={props.onDocumentTypeChange}
       />
 
       {/* FOOTER */}

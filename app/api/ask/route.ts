@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { createUserClient, getAuthenticatedUserId } from "@/lib/supabase-server";
 import { getSessionId } from "@/lib/session";
 import { SIGNUP_REQUIRED_CODE } from "@/lib/freeTier";
+import { SUBCONTRACT_SYSTEM_PROMPT, parseDocumentType } from "@/lib/subcontract-analysis";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -188,6 +189,9 @@ export async function POST(req: NextRequest) {
     const contractText = typeof body?.contractText === "string" ? body.contractText : "";
     const question = typeof body?.question === "string" ? body.question : "";
     const history = parseHistory(body?.history);
+    // A Subcontract-mode analysis carries the same contract-only HARD RULE
+    // into Ask as its extraction prompt does (see lib/subcontract-analysis.ts).
+    const documentType = parseDocumentType(body?.documentType);
 
     if (!contractText.trim() || !question.trim()) {
       return NextResponse.json(
@@ -215,7 +219,7 @@ Rules — follow all of these exactly:
 7. Set each passage's "section" to the clause or section label EXACTLY as printed in the text (e.g. "Section 7.3", "Clause 13.2") only if the text explicitly labels it that way. Never invent, number, or guess a section label that isn't printed in the source text — if none is printed, use null.
 8. Set a passage's "page" and "section" to the literal JSON value null (never 0, never a guess, never a default to page 1) whenever you cannot confidently identify the specific page a quote came from.
 9. Earlier turns in this conversation, if present, are provided only so you can resolve references like "it" or "the other party" in the current question. They are never a source of contract facts — every fact in your answer must still come from the contract text below, following rules 1-2 exactly as if this were the first question asked.
-10. Set the top-level "section" to whichever ONE of these categories the question/answer is primarily about, using the literal id: "overview" (contract identity — parties, contract type, purpose, status), "dates" (start/end/renewal dates, notice periods/deadlines, auto-renewal), "terms" (contract value, payment terms, pricing, price escalation, minimum commitments), "clauses" (termination, liability, governing law, assignment, confidentiality, SLA), "watch" (risk/what to watch out for), or "unknown" (asking what's missing/not found in the contract). If none clearly fits, set it to null.
+10. Set the top-level "section" to whichever ONE of these categories the question/answer is primarily about, using the literal id: "overview" (contract identity — parties, contract type, purpose, status), "dates" (start/end/renewal dates, notice periods/deadlines, auto-renewal), "terms" (contract value, payment terms, pricing, price escalation, minimum commitments), "clauses" (termination, liability, governing law, assignment, confidentiality, SLA), "watch" (risk/what to watch out for), or "unknown" (asking what's missing/not found in the contract). If none clearly fits, set it to null.${documentType === "subcontract" ? `\n\n${SUBCONTRACT_SYSTEM_PROMPT}` : ""}
 
 Return ONLY valid JSON (no markdown, no code fences, no preamble) matching this exact shape, and this shape only — "intro" is prose text, never another JSON object, code fence, or copy of this same structure:
 { "intro": "...", "passages": [ { "topic": "...", "quote": "...", "page": <number|null>, "section": "..."|null } ], "section": "overview" | "dates" | "terms" | "clauses" | "watch" | "unknown" | null }
